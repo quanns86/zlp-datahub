@@ -26,6 +26,8 @@ dependencies {
   compile project(":metadata-service:restli-client")
   compile project(":metadata-service:auth-api")
 
+  implementation "com.squareup.okhttp3:okhttp:4.9.0"
+  implementation "com.google.code.gson:gson:2.9.0"
   implementation externalDependency.jettyJaas
   implementation externalDependency.graphqlJava
   implementation externalDependency.antlr4Runtime
