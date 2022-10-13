@@ -1,24 +1,24 @@
-import React, {useEffect, useMemo, useState} from 'react';
-import {useHistory} from 'react-router';
-import {Button, Image, Row, Tag, Typography} from 'antd';
-import styled, {useTheme} from 'styled-components';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useHistory } from 'react-router';
+import { Button, Image, Row, Tag, Typography } from 'antd';
+import styled, { useTheme } from 'styled-components';
 
-import {ManageAccount} from '../shared/ManageAccount';
-import {useGetAuthenticatedUser} from '../useGetAuthenticatedUser';
-import {useEntityRegistry} from '../useEntityRegistry';
-import {navigateToSearchUrl} from '../search/utils/navigateToSearchUrl';
-import {SearchBar} from '../search/SearchBar';
+import { ManageAccount } from '../shared/ManageAccount';
+import { useGetAuthenticatedUser } from '../useGetAuthenticatedUser';
+import { useEntityRegistry } from '../useEntityRegistry';
+import { navigateToSearchUrl } from '../search/utils/navigateToSearchUrl';
+import { SearchBar } from '../search/SearchBar';
 import {
     GetAutoCompleteMultipleResultsQuery,
     useGetAutoCompleteMultipleResultsLazyQuery,
     useGetSearchResultsForMultipleQuery,
 } from '../../graphql/search.generated';
-import {EntityType} from '../../types.generated';
-import analytics, {EventType} from '../analytics';
-import {HeaderLinks} from '../shared/admin/HeaderLinks';
-import {ANTD_GRAY} from '../entity/shared/constants';
-import {useAppConfig} from '../useAppConfig';
-import {DEFAULT_APP_CONFIG} from '../../appConfigContext';
+import { EntityType } from '../../types.generated';
+import analytics, { EventType } from '../analytics';
+import { HeaderLinks } from '../shared/admin/HeaderLinks';
+import { ANTD_GRAY } from '../entity/shared/constants';
+import { useAppConfig } from '../useAppConfig';
+import { DEFAULT_APP_CONFIG } from '../../appConfigContext';
 
 const Background = styled.div`
     width: 100%;
@@ -32,15 +32,15 @@ const Background = styled.div`
 const WelcomeText = styled(Typography.Text)`
     font-size: 16px;
     color: ${(props) =>
-    props.theme.styles['homepage-text-color'] || props.theme.styles['homepage-background-lower-fade']};
+        props.theme.styles['homepage-text-color'] || props.theme.styles['homepage-background-lower-fade']};
 `;
 
 const styles = {
-    navBar: {padding: '24px'},
-    searchContainer: {width: '100%', marginTop: '40px'},
-    logoImage: {width: 140},
-    searchBox: {width: '47vw', minWidth: 400, margin: '40px 0px', marginBottom: '12px', maxWidth: '650px'},
-    subtitle: {marginTop: '28px', color: `${ANTD_GRAY[8]}`, fontSize: 12},
+    navBar: { padding: '24px' },
+    searchContainer: { width: '100%', marginTop: '40px' },
+    logoImage: { width: 140 },
+    searchBox: { width: '47vw', minWidth: 400, margin: '40px 0px', marginBottom: '12px', maxWidth: '650px' },
+    subtitle: { marginTop: '28px', color: `${ANTD_GRAY[8]}`, fontSize: 12 },
 };
 
 const HeaderContainer = styled.div`
@@ -116,7 +116,7 @@ function sortRandom() {
 export const HomePageHeader = () => {
     const history = useHistory();
     const entityRegistry = useEntityRegistry();
-    const [getAutoCompleteResultsForMultiple, {data: suggestionsData}] = useGetAutoCompleteMultipleResultsLazyQuery();
+    const [getAutoCompleteResultsForMultiple, { data: suggestionsData }] = useGetAutoCompleteMultipleResultsLazyQuery();
     const user = useGetAuthenticatedUser()?.corpUser;
     const themeConfig = useTheme();
     const appConfig = useAppConfig();
@@ -158,7 +158,7 @@ export const HomePageHeader = () => {
     };
 
     // Fetch results
-    const {data: searchResultsData} = useGetSearchResultsForMultipleQuery({
+    const { data: searchResultsData } = useGetSearchResultsForMultipleQuery({
         variables: {
             input: {
                 types: [],
@@ -196,7 +196,7 @@ export const HomePageHeader = () => {
                     )}
                 </WelcomeText>
                 <NavGroup>
-                    <HeaderLinks/>
+                    <HeaderLinks />
                     <ManageAccount
                         urn={user?.urn || ''}
                         pictureLink={user?.editableProperties?.pictureLink || ''}
