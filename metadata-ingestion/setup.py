@@ -207,6 +207,9 @@ usage_common = {
 # Note: for all of these, framework_common will be added.
 plugins: Dict[str, Set[str]] = {
     # Sink plugins.
+    "hdfs": {"pyspark==2.4.5", "parse==1.19.0"},
+    "arangodb": {"python-arango"},
+    "tidb": sql_common | {"mysqlclient"},
     "datahub-kafka": kafka_common,
     "datahub-rest": {"requests"},
     # Integrations.
@@ -237,7 +240,7 @@ plugins: Dict[str, Set[str]] = {
     },
     "datahub-lineage-file": set(),
     "datahub-business-glossary": set(),
-    "delta-lake": {*data_lake_profiling, *delta_lake},
+    "delta-lake": {*delta_lake},
     "dbt": {"requests"} | aws_common,
     "druid": sql_common | {"pydruid>=0.6.2"},
     # Starting with 7.14.0 python client is checking if it is connected to elasticsearch client. If its not it throws
@@ -295,7 +298,7 @@ plugins: Dict[str, Set[str]] = {
     "redash": {"redash-toolbelt", "sql-metadata", "sqllineage==1.3.6"},
     "redshift": sql_common | redshift_common,
     "redshift-usage": sql_common | usage_common | redshift_common,
-    "s3": {*s3_base, *data_lake_profiling},
+    "s3": {*s3_base},
     "sagemaker": aws_common,
     "salesforce": {"simple-salesforce"},
     "snowflake-legacy": snowflake_common,
@@ -380,6 +383,9 @@ base_dev_requirements = {
     *list(
         dependency
         for plugin in [
+            "tidb",
+            "arangodb",
+            "hdfs",
             "bigquery",
             "bigquery-usage",
             "clickhouse",
@@ -477,6 +483,9 @@ full_test_dev_requirements = {
 entry_points = {
     "console_scripts": ["datahub = datahub.entrypoints:main"],
     "datahub.ingestion.source.plugins": [
+        "tidb = datahub.ingestion.source.sql.tidb:TiDBSource",
+        "arangodb = datahub.ingestion.source.arangodb:ArangoDBSource",
+        "hdfs = datahub.ingestion.source.hdfs:HDFSSource",
         "csv-enricher = datahub.ingestion.source.csv_enricher:CSVEnricherSource",
         "file = datahub.ingestion.source.file:GenericFileSource",
         "sqlalchemy = datahub.ingestion.source.sql.sql_generic:SQLAlchemyGenericSource",
