@@ -1,7 +1,7 @@
 # Defining environment
 ARG APP_ENV=prod
 
-FROM public.ecr.aws/datahub/acryl-datahub-actions:head as base
+FROM acryldata/acryl-datahub-actions:head as base
 USER root
 # ENV DOCKERIZE_VERSION v0.6.1
 # RUN apk --no-cache add curl tar \

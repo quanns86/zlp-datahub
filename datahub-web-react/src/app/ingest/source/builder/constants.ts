@@ -25,7 +25,13 @@ import mariadbLogo from '../../../../images/mariadblogo.png';
 import metabaseLogo from '../../../../images/metabaselogo.png';
 import powerbiLogo from '../../../../images/powerbilogo.png';
 import modeLogo from '../../../../images/modelogo.png';
+import arangoLogo from '../../../../images/arangodblogo.png'
+import tidbLogo from '../../../../images/tidblogo.png'
 
+export const ARANGO = 'arangodb'
+export const ARANGO_URN = `urn:li:dataPlatform:${ARANGO}`
+export const TIDB = 'tidb'
+export const TIDB_URN = `urn:li:dataPlatform:${TIDB}`
 export const ATHENA = 'athena';
 export const ATHENA_URN = `urn:li:dataPlatform:${ATHENA}`;
 export const AZURE = 'azure-ad';
@@ -93,6 +99,8 @@ export const CUSTOM = 'custom';
 export const CUSTOM_URN = `urn:li:dataPlatform:${CUSTOM}`;
 
 export const PLATFORM_URN_TO_LOGO = {
+    [TIDB_URN]: tidbLogo,
+    [ARANGO_URN]: arangoLogo,
     [ATHENA_URN]: athenaLogo,
     [AZURE_URN]: azureLogo,
     [BIGQUERY_URN]: bigqueryLogo,
