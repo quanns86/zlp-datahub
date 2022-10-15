@@ -1,13 +1,13 @@
-import {Button, Modal, Steps, Typography} from 'antd';
-import React, {useEffect, useRef, useState} from 'react';
+import { Button, Modal, Steps, Typography } from 'antd';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
-import {isEqual} from 'lodash';
-import {ExpandAltOutlined, ShrinkOutlined} from '@ant-design/icons';
-import {SourceBuilderState, StepProps} from './types';
-import {CreateScheduleStep} from './CreateScheduleStep';
-import {DefineRecipeStep} from './DefineRecipeStep';
-import {NameSourceStep} from './NameSourceStep';
-import {SelectTemplateStep} from './SelectTemplateStep';
+import { isEqual } from 'lodash';
+import { ExpandAltOutlined, ShrinkOutlined } from '@ant-design/icons';
+import { SourceBuilderState, StepProps } from './types';
+import { CreateScheduleStep } from './CreateScheduleStep';
+import { DefineRecipeStep } from './DefineRecipeStep';
+import { NameSourceStep } from './NameSourceStep';
+import { SelectTemplateStep } from './SelectTemplateStep';
 import sourcesJson from './sources.json';
 
 const ExpandButton = styled(Button)`
@@ -64,7 +64,7 @@ type Props = {
     onCancel?: () => void;
 };
 
-export const IngestionSourceBuilderModal = ({initialState, visible, onSubmit, onCancel}: Props) => {
+export const IngestionSourceBuilderModal = ({ initialState, visible, onSubmit, onCancel }: Props) => {
     const isEditing = initialState !== undefined;
     const titleText = isEditing ? 'Edit Ingestion Source' : 'New Ingestion Source';
     const initialStep = isEditing
@@ -129,18 +129,18 @@ export const IngestionSourceBuilderModal = ({initialState, visible, onSubmit, on
                 <TitleContainer>
                     <Typography.Text>{titleText}</Typography.Text>
                     <ExpandButton onClick={() => setModalExpanded(!modalExpanded)}>
-                        {(modalExpanded && <ShrinkOutlined/>) || <ExpandAltOutlined/>}
+                        {(modalExpanded && <ShrinkOutlined />) || <ExpandAltOutlined />}
                     </ExpandButton>
                 </TitleContainer>
             }
-            style={{top: 40}}
+            style={{ top: 40 }}
             visible={visible}
             onCancel={onCancel}
         >
             <StepsContainer>
                 <Steps current={currentStepIndex}>
                     {Object.keys(IngestionSourceBuilderStep).map((item) => (
-                        <Steps.Step key={item} title={IngestionSourceBuilderStepTitles[item]}/>
+                        <Steps.Step key={item} title={IngestionSourceBuilderStepTitles[item]} />
                     ))}
                 </Steps>
             </StepsContainer>

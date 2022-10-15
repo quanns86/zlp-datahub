@@ -25,13 +25,13 @@ import mariadbLogo from '../../../../images/mariadblogo.png';
 import metabaseLogo from '../../../../images/metabaselogo.png';
 import powerbiLogo from '../../../../images/powerbilogo.png';
 import modeLogo from '../../../../images/modelogo.png';
-import arangoLogo from '../../../../images/arangodblogo.png'
-import tidbLogo from '../../../../images/tidblogo.png'
+import arangoLogo from '../../../../images/arangodblogo.png';
+import tidbLogo from '../../../../images/tidblogo.png';
 
-export const ARANGO = 'arangodb'
-export const ARANGO_URN = `urn:li:dataPlatform:${ARANGO}`
-export const TIDB = 'tidb'
-export const TIDB_URN = `urn:li:dataPlatform:${TIDB}`
+export const ARANGO = 'arangodb';
+export const ARANGO_URN = `urn:li:dataPlatform:${ARANGO}`;
+export const TIDB = 'tidb';
+export const TIDB_URN = `urn:li:dataPlatform:${TIDB}`;
 export const ATHENA = 'athena';
 export const ATHENA_URN = `urn:li:dataPlatform:${ATHENA}`;
 export const AZURE = 'azure-ad';
