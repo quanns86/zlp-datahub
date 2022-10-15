@@ -1,55 +1,74 @@
+# Copyright 2021 Acryl Data, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Defining environment
 ARG APP_ENV=prod
 
-FROM acryldata/acryl-datahub-actions:head as base
-USER root
-# ENV DOCKERIZE_VERSION v0.6.1
-# RUN apk --no-cache add curl tar \
-#     && curl https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-runner/9.4.20.v20190813/jetty-runner-9.4.20.v20190813.jar --output jetty-runner.jar \
-#     && curl -L https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz | tar -C /usr/local/bin -xzv
-RUN apt-get update && apt-get install -y \
-  jq \
-  librdkafka-dev \
-  python3-ldap \
-  libldap2-dev \
-  libsasl2-dev \
-  libsasl2-modules \
-  ldap-utils \
-  && python -m pip install --upgrade pip wheel setuptools==57.5.0 && \
-  apt update -y && apt-get install -y software-properties-common && \
-  apt-add-repository 'deb http://security.debian.org/debian-security stretch/updates main' && apt update -y && \
-  apt-get install -y openjdk-8-jdk-headless && \
-  export JAVA_HOME && \
-  mkdir /python-install && cd /python-install
+# Build metadata-ingestion
+FROM acryldata/datahub-ingestion-base as base
 
-FROM openjdk:8 as prod-build
+FROM openjdk:11 as prod-ingestion-build
 COPY . /datahub-src
 RUN cd /datahub-src && ./gradlew :metadata-events:mxe-schemas:build
 
-FROM base as prod-codegen
-COPY --from=prod-build /datahub-src /datahub-src
+FROM base as prod-ingestion-codegen
+COPY --from=prod-ingestion-build /datahub-src /datahub-src
+RUN ls
 RUN cd /datahub-src/metadata-ingestion && \
-  pip install -e ".[base]" && \
-  ./scripts/codegen.sh
+    pip install -e ".[base]" && \
+    ./scripts/codegen.sh
 
-FROM base as prod-install
-COPY --from=prod-codegen /datahub-src/datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
-COPY --from=prod-codegen /datahub-src/datahub-actions/executor.yaml /etc/datahub/actions
-RUN chmod 755 /usr/local/bin/run_ingest.sh
-COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
+# Build actions
+FROM acryldata/datahub-ingestion-base:latest as prod-install
+COPY /datahub-actions /actions-src
+RUN mkdir -p /etc/datahub/actions && mkdir -p /tmp/datahub/logs/actions/system
+RUN cd /actions-src && \
+    pip install --no-binary :all: "confluent_kafka==${CONFLUENT_KAFKA_VERSION}" && \
+    pip install "." && \
+    pip install '.[executor]'
+
+COPY --from=prod-ingestion-codegen /datahub-src/metadata-ingestion /datahub-ingestion
+COPY --from=prod-ingestion-codegen /root/.cache/pip /root/.cache/pip
 ARG RELEASE_VERSION
 RUN cd /datahub-ingestion && \
-  sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
-  cat src/datahub/__init__.py && \
-  pip install ".[all]"
-COPY --from=prod-codegen /datahub-src/datahub-actions/cloudpickle.py /usr/local/lib/python3.9/site-packages/pyspark/cloudpickle.py
+    sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
+    cat src/datahub/__init__.py && \
+    pip install ".[all]" && \
+    pip freeze
+# Pyspark 2.4.5
+COPY --from=prod-ingestion-codegen /datahub-src/datahub-actions/cloudpickle.py /usr/local/lib/python3.9/site-packages/pyspark/cloudpickle.py
+COPY ./docker/datahub-actions/start.sh /start_datahub_actions.sh
+RUN chmod a+x /start_datahub_actions.sh
 
-FROM base as dev-install
-# Dummy stage for development. Assumes code is built on your machine and mounted to this image.
-# See this excellent thread https://github.com/docker/cli/issues/1134
+# Add other default configurations into this!
+RUN mkdir -p /etc/datahub/actions/conf && mkdir -p /etc/datahub/actions/system/conf
+COPY ./docker/datahub-actions/config/executor.yaml /etc/datahub/actions/system/conf
+
+RUN addgroup --system datahub && adduser --system datahub --ingroup datahub \
+    && chown datahub /etc/datahub \
+    && chown -R datahub /tmp/datahub
+
+# By transferring the root user's pip cache directory to the datahub
+# user, we can avoid the need for some redundant dependency downloads.
+RUN mkdir -p /home/datahub/.cache \
+    && mv /root/.cache/pip /home/datahub/.cache/pip \
+    && chown -R datahub /home/datahub/.cache/pip
+
+
 
 FROM ${APP_ENV}-install as final
-
 USER datahub
-
-CMD ["/bin/sh", "/start_datahub_actions.sh"]
+RUN curl -s "https://get.sdkman.io" | bash
+RUN /bin/bash -c "source /$HOME/.sdkman/bin/sdkman-init.sh; sdk version; sdk install java 8.0.332-zulu"
+CMD dockerize -wait http://$DATAHUB_GMS_HOST:$DATAHUB_GMS_PORT/health -timeout 240s /start_datahub_actions.sh

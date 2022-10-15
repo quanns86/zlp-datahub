@@ -78,7 +78,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
           publish: ${{ needs.setup.outputs.publish }}
           context: .
-          file: ./docker/datahub-gms/Dockerfile
+          file: ./docker/datahub-actions/Dockerfile
           platforms: linux/amd64,linux/arm64
   gms_build:
     name: Build and Push DataHub GMS Docker Image

@@ -1,0 +1,6 @@
+docker/datahub-actions/Dockerfile
+.git
+**build/
+**venv/
+**tests/
+**/*.xml
