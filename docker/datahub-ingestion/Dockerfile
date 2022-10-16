@@ -13,22 +13,22 @@ RUN cd /datahub-src/metadata-ingestion && \
     pip install -e ".[base]" && \
     ./scripts/codegen.sh
 
+FROM ubuntu:head as miniconda-build
+RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64.sh > /miniconda.sh && \
+    bash /miniconda.sh -b -p /miniconda
+
 FROM base as prod-install
+ARG RELEASE_VERSION
 COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-codegen /root/.cache/pip /root/.cache/pip
-ARG RELEASE_VERSION
+COPY --from=miniconda-build /miniconda /miniconda
 RUN cd /datahub-ingestion && \
     sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
     cat src/datahub/__init__.py && \
     pip install ".[all]" && \
     pip freeze
 
-FROM base as dev-install
-# Dummy stage for development. Assumes code is built on your machine and mounted to this image.
-# See this excellent thread https://github.com/docker/cli/issues/1134
-
 FROM ${APP_ENV}-install as final
-
 RUN addgroup --system datahub && adduser --system datahub --ingroup datahub
 USER datahub
 

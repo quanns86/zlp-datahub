@@ -17,6 +17,12 @@ ARG APP_ENV=prod
 
 # Build metadata-ingestion
 FROM acryldata/datahub-ingestion-base as base
+RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64.sh > /miniconda.sh && \
+    bash /miniconda.sh -b -p /miniconda && \
+    eval "$(/miniconda/bin/conda shell.bash hook)" && \
+    python3 -m pip install -r requirements.txt && \
+    conda init && \
+    conda activate base
 
 FROM openjdk:11 as prod-ingestion-build
 COPY . /datahub-src
@@ -40,7 +46,6 @@ RUN cd /actions-src && \
 
 COPY --from=prod-ingestion-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-ingestion-codegen /root/.cache/pip /root/.cache/pip
-ARG RELEASE_VERSION
 RUN cd /datahub-ingestion && \
     sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
     cat src/datahub/__init__.py && \
@@ -48,6 +53,7 @@ RUN cd /datahub-ingestion && \
     pip freeze
 # Pyspark 2.4.5
 COPY --from=prod-ingestion-codegen /datahub-src/datahub-actions/cloudpickle.py /usr/local/lib/python3.9/site-packages/pyspark/cloudpickle.py
+COPY --from=prod-ingestion-codegen /datahub-src/datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
 COPY ./docker/datahub-actions/start.sh /start_datahub_actions.sh
 RUN chmod a+x /start_datahub_actions.sh
 
