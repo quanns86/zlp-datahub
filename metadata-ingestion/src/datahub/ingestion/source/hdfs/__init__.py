@@ -774,18 +774,6 @@ class HDFSSource(StatefulIngestionSourceBase):
             )
         return None
 
-    def update_default_job_run_summary(self) -> None:
-        summary = self.get_job_run_summary(self.get_default_ingestion_job_id())
-        if summary is not None:
-            # For now just add the config and the report.
-            summary.config = self.config.json()
-            summary.custom_summary = self.hdfs_report.as_string()
-            summary.runStatus = (
-                JobStatusClass.FAILED
-                if self.get_report().failures
-                else JobStatusClass.COMPLETED
-            )
-
     def gen_removed_entity_workunits(self) -> Iterable[MetadataWorkUnit]:
         last_checkpoint = self.get_last_checkpoint(
             self.get_default_ingestion_job_id(), BaseSQLAlchemyCheckpointState
@@ -897,5 +885,4 @@ class HDFSSource(StatefulIngestionSourceBase):
 
     def close(self):
         self.spark.stop()
-        self.update_default_job_run_summary()
         self.prepare_for_commit()

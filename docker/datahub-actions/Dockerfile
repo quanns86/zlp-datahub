@@ -33,7 +33,7 @@ FROM base as prod-install
 USER datahub
 COPY --from=prod-ingestion-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64.sh > $HOME/miniconda.sh && \
-    bash $HOME/miniconda.sh -b && \
+    bash $HOME/miniconda.sh -b  && \
     eval "$($HOME/miniconda3/bin/conda shell.bash hook)" && \
     conda init && \
     python3 -m pip install -r requirements.txt && \
@@ -41,9 +41,12 @@ RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64
     sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
     pip install ".[dev]"
 
-# Pyspark 2.4.5
 COPY --from=prod-ingestion-codegen /datahub-src/datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
+COPY --from=prod-ingestion-codegen /datahub-src/datahub-actions/cloudpickle.py /home/datahub/miniconda3/lib/python3.9/site-packages/pyspark/
+
 
 FROM ${APP_ENV}-install as final
 USER datahub
+RUN curl -s "https://get.sdkman.io" | bash && \
+    /bin/bash -c "source /$HOME/.sdkman/bin/sdkman-init.sh; sdk version; sdk install java 8.0.342-amzn"
 CMD dockerize -wait http://$DATAHUB_GMS_HOST:$DATAHUB_GMS_PORT/health -timeout 240s /start_datahub_actions.sh
