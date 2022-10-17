@@ -1,7 +1,7 @@
 #!/bin/bash
 # usage: ./run_ingest.sh <task-id> <datahub-version> <plugins-required> <tmp-dir> <recipe_file> <report_file>
 
-set -euo pipefail
+# set -euo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR" || exit
 
@@ -14,7 +14,9 @@ report_file="$6"
 debug_mode="$7"
 
 # Execute DataHub recipe, based on the recipe id.
-echo "datahub  ingest run -c ${recipe_file}"
+export JAVA_HOME=/home/datahub/.sdkman/candidates/java/current
+echo "datahub ingest run -c ${recipe_file}"
+eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
 if (datahub ingest run -c "${recipe_file}"); then
   exit 0
 else
