@@ -2,6 +2,7 @@ repositories {
     gradlePluginPortal()
     mavenLocal()
     mavenCentral()
+    
     maven {
         url "https://packages.confluent.io/maven/"
     }
@@ -10,6 +11,9 @@ repositories {
     }
     maven {
         url "https://linkedin.jfrog.io/artifactory/open-source/" // GMA, pegasus
+    }
+    maven {
+        url  "https://dl.bintray.com/gradle/gradle-plugins"
     }
 }
 
