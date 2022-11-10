@@ -1,10 +1,16 @@
 package security;
+
 import client.VngAuthenticationClient;
 
 import javax.security.auth.Subject;
-import javax.security.auth.callback.*;
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.CallbackHandler;
+import javax.security.auth.callback.NameCallback;
+import javax.security.auth.callback.PasswordCallback;
+import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.LoginException;
 import javax.security.auth.spi.LoginModule;
+
 import java.io.IOException;
 import java.util.Map;
 
@@ -15,7 +21,7 @@ public class VNGLoginModule implements LoginModule {
 
     @Override
     public void initialize(Subject subject, CallbackHandler callbackHandler, Map<String, ?> sharedState,
-                           Map<String, ?> options) {
+            Map<String, ?> options) {
         this.callbackHandler = callbackHandler;
         this.vngAuthenticationClient = new VngAuthenticationClient();
     }

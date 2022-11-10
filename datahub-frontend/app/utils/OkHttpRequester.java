@@ -1,8 +1,12 @@
 package utils;
 
-import com.google.gson.JsonElement;
-import okhttp3.*;
 import org.apache.commons.lang3.StringUtils;
+
+import okhttp3.Call;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 
 import java.io.IOException;
 
