@@ -23,7 +23,7 @@ RUN cd /datahub-src && ./gradlew :metadata-events:mxe-schemas:build
 FROM base as prod-ingestion-codegen
 USER root
 COPY --from=prod-ingestion-build /datahub-src /datahub-src
-RUN apt-get install -y cron vi
+RUN apt-get install -y cron vim
 RUN chmod -R 777 /datahub-src
 RUN cd /datahub-src/metadata-ingestion && \
     pip install -e ".[base]" && \
