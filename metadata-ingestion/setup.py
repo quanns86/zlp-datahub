@@ -213,7 +213,7 @@ databricks_cli = {
 # Note: for all of these, framework_common will be added.
 plugins: Dict[str, Set[str]] = {
     # Sink plugins.
-    "hdfs": {"pyspark==2.4.5", "parse==1.19.0"},
+    "hdfs": {"pyspark==3.2.4", "parse==1.19.0"},
     "arangodb": {"python-arango"},
     "tidb": sql_common | {"mysqlclient"},
     "datahub-kafka": kafka_common,
