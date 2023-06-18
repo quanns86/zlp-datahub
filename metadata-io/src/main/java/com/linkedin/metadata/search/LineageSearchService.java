@@ -397,32 +397,6 @@ public class LineageSearchService {
     return urnToRelationship;
   }
 
-  // Necessary so we don't filter out schemaField entities and so that we search to get the parent reference entity
-  private LineageRelationshipArray convertSchemaFieldRelationships(EntityLineageResult lineageResult) {
-    return lineageResult.getRelationships().stream().map(relationship -> {
-      if (relationship.getEntity().getEntityType().equals("schemaField")) {
-        Urn entity = getSchemaFieldReferenceUrn(relationship.getEntity());
-        relationship.setEntity(entity);
-      }
-      return relationship;
-    }).collect(Collectors.toCollection(LineageRelationshipArray::new));
-  }
-
-  private Map<Urn, LineageRelationship> generateUrnToRelationshipMap(List<LineageRelationship> lineageRelationships) {
-    Map<Urn, LineageRelationship> urnToRelationship = new HashMap<>();
-    for (LineageRelationship relationship : lineageRelationships) {
-      LineageRelationship existingRelationship = urnToRelationship.get(relationship.getEntity());
-      if (existingRelationship == null) {
-        urnToRelationship.put(relationship.getEntity(), relationship);
-      } else {
-        UrnArrayArray paths = existingRelationship.getPaths();
-        paths.addAll(relationship.getPaths());
-        existingRelationship.setPaths(paths);
-      }
-    }
-    return urnToRelationship;
-  }
-
   // Search service can only take up to 50K term filter, so query search service in batches
   private LineageSearchResult getSearchResultInBatches(List<LineageRelationship> lineageRelationships,
       @Nonnull String input, @Nullable Filter inputFilters, @Nullable SortCriterion sortCriterion, int from, int size,
