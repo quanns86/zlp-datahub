@@ -26,15 +26,10 @@ RUN cd /datahub-src/metadata-ingestion && \
     pip install -e ".[base]" && \
     ./scripts/codegen.sh
 
-FROM ubuntu:head as miniconda-build
-RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64.sh > /miniconda.sh && \
-    bash /miniconda.sh -b -p /miniconda
-
 FROM base as prod-install
-ARG RELEASE_VERSION
 COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-codegen /root/.cache/pip /root/.cache/pip
-COPY --from=miniconda-build /miniconda /miniconda
+ARG RELEASE_VERSION
 RUN cd /datahub-ingestion && \
     sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
     cat src/datahub/__init__.py && \
@@ -43,7 +38,12 @@ RUN cd /datahub-ingestion && \
     # This is required to fix security vulnerability in htrace-core4
     rm -f /usr/local/lib/python3.10/site-packages/pyspark/jars/htrace-core4-4.1.0-incubating.jar
 
+FROM base as dev-install
+# Dummy stage for development. Assumes code is built on your machine and mounted to this image.
+# See this excellent thread https://github.com/docker/cli/issues/1134
+
 FROM ${APP_ENV}-install as final
+
 RUN addgroup --system datahub && adduser --system datahub --ingroup datahub
 USER datahub
 

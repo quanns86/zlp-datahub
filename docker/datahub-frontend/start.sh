@@ -26,21 +26,6 @@ if [[ ! -z ${SSL_TRUSTSTORE_PASSWORD:-} ]]; then
   TRUSTSTORE_PASSWORD="-Djavax.net.ssl.trustStorePassword=$SSL_TRUSTSTORE_PASSWORD"
 fi
 
-TRUSTSTORE_FILE=""
-if [[ ! -z ${SSL_TRUSTSTORE_FILE:-} ]]; then
-  TRUSTSTORE_FILE="-Djavax.net.ssl.trustStore=$SSL_TRUSTSTORE_FILE"
-fi
-
-TRUSTSTORE_TYPE=""
-if [[ ! -z ${SSL_TRUSTSTORE_TYPE:-} ]]; then
-  TRUSTSTORE_TYPE="-Djavax.net.ssl.trustStoreType=$SSL_TRUSTSTORE_TYPE"
-fi
-
-TRUSTSTORE_PASSWORD=""
-if [[ ! -z ${SSL_TRUSTSTORE_PASSWORD:-} ]]; then
-  TRUSTSTORE_PASSWORD="-Djavax.net.ssl.trustStorePassword=$SSL_TRUSTSTORE_PASSWORD"
-fi
-
 # make sure there is no whitespace at the beginning and the end of 
 # this string
 export JAVA_OPTS="-Xms512m \
