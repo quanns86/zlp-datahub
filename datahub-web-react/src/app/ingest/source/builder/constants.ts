@@ -25,6 +25,10 @@ import mariadbLogo from '../../../../images/mariadblogo.png';
 import metabaseLogo from '../../../../images/metabaselogo.png';
 import powerbiLogo from '../../../../images/powerbilogo.png';
 import modeLogo from '../../../../images/modelogo.png';
+import databricksLogo from '../../../../images/databrickslogo.png';
+import verticaLogo from '../../../../images/verticalogo.png';
+import tidbLogo from '../../../../images/tidblogo.png';
+import arangoLogo from '../../../../images/arangodblogo.png';
 
 export const ARANGO = 'arangodb';
 export const ARANGO_URN = `urn:li:dataPlatform:${ARANGO}`;

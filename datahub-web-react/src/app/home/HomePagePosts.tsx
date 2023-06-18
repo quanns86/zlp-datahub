@@ -16,11 +16,6 @@ const ContentContainer = styled.div`
     padding-left: 12px;
 `;
 
-const ContentContainer = styled.div`
-    padding-right: 12px;
-    padding-left: 12px;
-`;
-
 const RecommendationTitle = styled(Typography.Title)`
     margin-top: 0px;
     margin-bottom: 0px;

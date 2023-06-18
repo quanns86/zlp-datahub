@@ -66,11 +66,6 @@ const RefreshCacheButton = styled(Button)`
     margin-left: 8px;
 `;
 
-const RightButtonsWrapper = styled.div`
-    align-items: center;
-    display: flex;
-`;
-
 export const LineageTab = ({
     properties = { defaultDirection: LineageDirection.Downstream },
 }: {
@@ -126,10 +121,6 @@ export const LineageTab = ({
             value: LineageDirection.Upstream,
         },
     ];
-
-    const selectedV1FieldPath = downgradeV2FieldPath(selectedColumn) || '';
-    const selectedColumnUrn = generateSchemaFieldUrn(selectedV1FieldPath, urn);
-    const impactAnalysisUrn = isColumnLevelLineage && selectedColumnUrn ? selectedColumnUrn : urn;
 
     return (
         <>

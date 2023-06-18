@@ -42,7 +42,6 @@ function layoutNodesForOneDirection(
     collapsedColumnsNodes: any,
     nodesToRender: VizNode[],
     edgesToRender: VizEdge[],
-    renderedNodeUrns: Set<string>,
 ) {
     const nodesByUrn: Record<string, VizNode> = {};
     const xModifier = direction === Direction.Downstream ? 1 : UPSTREAM_X_MODIFIER;
@@ -71,7 +70,7 @@ function layoutNodesForOneDirection(
                 (nodeHeightFromTitleLength(undefined, undefined, showColumns, false) + VERTICAL_SPACE_BETWEEN_NODES) *
                 (layerSize - 1)
             ) /
-            2 +
+                2 +
             canvasHeight / 2 +
             HEADER_HEIGHT;
 
@@ -90,17 +89,17 @@ function layoutNodesForOneDirection(
                 vizNodeForNode =
                     node.urn in draggedNodes
                         ? {
-                            data: node,
-                            x: draggedNodes[node.urn].x,
-                            y: draggedNodes[node.urn].y,
-                            direction,
-                        }
+                              data: node,
+                              x: draggedNodes[node.urn].x,
+                              y: draggedNodes[node.urn].y,
+                              direction,
+                          }
                         : {
-                            data: node,
-                            x: currentXPosition,
-                            y: HORIZONTAL_SPACE_PER_LAYER * numInCurrentLayer * xModifier,
-                            direction,
-                        };
+                              data: node,
+                              x: currentXPosition,
+                              y: HORIZONTAL_SPACE_PER_LAYER * numInCurrentLayer * xModifier,
+                              direction,
+                          };
                 currentXPosition +=
                     nodeHeightFromTitleLength(
                         expandTitles ? node.expandedName || node.name : undefined,
@@ -117,6 +116,7 @@ function layoutNodesForOneDirection(
                         node: child,
                     })) || []),
                 ];
+                nodesToRender.push(vizNodeForNode);
             }
 
             if (parent) {
@@ -129,25 +129,25 @@ function layoutNodesForOneDirection(
                 // if the nodes are inverted, we want to draw the edge slightly differently
                 const curve = parentIsBehindChild
                     ? [
-                        { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
-                        { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
-                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
-                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
-                    ]
+                          { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
+                          { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
+                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
+                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
+                      ]
                     : [
-                        { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
-                        { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
-                        {
-                            x: parent.x + CURVE_PADDING * (parentIsHigher ? -1 : 1),
-                            y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier,
-                        },
-                        {
-                            x: vizNodeForNode.x + CURVE_PADDING * (parentIsHigher ? 1 : -1),
-                            y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier,
-                        },
-                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
-                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
-                    ];
+                          { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
+                          { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
+                          {
+                              x: parent.x + CURVE_PADDING * (parentIsHigher ? -1 : 1),
+                              y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier,
+                          },
+                          {
+                              x: vizNodeForNode.x + CURVE_PADDING * (parentIsHigher ? 1 : -1),
+                              y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier,
+                          },
+                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
+                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
+                      ];
 
                 const relationship = getParentRelationship(direction, parent, node);
 
@@ -364,7 +364,6 @@ export default function layoutTree(
     nodesByUrn: Record<string, VizNode>;
     layers: number;
 } {
-    const renderedNodeUrns = new Set<string>();
     const nodesToRender: VizNode[] = [];
     const edgesToRender: VizEdge[] = [];
 
@@ -378,7 +377,6 @@ export default function layoutTree(
         collapsedColumnsNodes,
         nodesToRender,
         edgesToRender,
-        renderedNodeUrns,
     );
 
     const { numInCurrentLayer: numDownstream, nodesByUrn: downstreamNodesByUrn } = layoutNodesForOneDirection(
@@ -391,7 +389,6 @@ export default function layoutTree(
         collapsedColumnsNodes,
         nodesToRender,
         edgesToRender,
-        renderedNodeUrns,
     );
 
     const nodesByUrn = { ...upstreamNodesByUrn, ...downstreamNodesByUrn };

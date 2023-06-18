@@ -21,7 +21,8 @@ function reduceFiltersToCombineDegreeFilters(acc: FacetFilterInput[], filter: Fa
 // we need to reformat our list of filters into a dict
 function reduceFiltersIntoQueryStringDict(acc, filter, idx) {
     acc[
-        `${FILTER_URL_PREFIX}${filter.field}${URL_PARAM_SEPARATOR}${String(!!filter.negated)}${URL_PARAM_SEPARATOR}${filter.condition || FilterOperator.Equal
+        `${FILTER_URL_PREFIX}${filter.field}${URL_PARAM_SEPARATOR}${String(!!filter.negated)}${URL_PARAM_SEPARATOR}${
+            filter.condition || FilterOperator.Equal
         }${URL_PARAM_SEPARATOR}${idx}`
     ] = [...filter.values.map((value) => encodeComma(value))];
     return acc;

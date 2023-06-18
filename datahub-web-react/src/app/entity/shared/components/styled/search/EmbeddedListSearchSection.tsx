@@ -27,18 +27,6 @@ function getParamsWithoutFilters(params: QueryString.ParsedQuery<string>) {
     return paramsCopy;
 }
 
-const FILTER = 'filter';
-
-function getParamsWithoutFilters(params: QueryString.ParsedQuery<string>) {
-    const paramsCopy = { ...params };
-    Object.keys(paramsCopy).forEach((key) => {
-        if (key.startsWith(FILTER)) {
-            delete paramsCopy[key];
-        }
-    });
-    return paramsCopy;
-}
-
 type Props = {
     emptySearchQuery?: string | null;
     fixedFilters?: FilterSet;

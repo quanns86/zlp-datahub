@@ -100,7 +100,9 @@ export const NameSourceStep = ({ state, updateState, prev, submit }: StepProps) 
                                 Advanced: Provide a custom CLI version to use for ingestion.
                             </Typography.Paragraph>
                             <Input
-                                placeholder="(e.g. 0.8.42)"
+                                data-testid="cli-version-input"
+                                className="cli-version-input"
+                                placeholder="(e.g. 0.10.4)"
                                 value={state.config?.version || ''}
                                 onChange={(event) => setVersion(event.target.value)}
                             />

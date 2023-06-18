@@ -85,7 +85,7 @@ export default function UserListItem({ user, canManageUserCredentials, selectRol
     const userStatusColor = userStatus && getUserStatusColor(userStatus);
 
     return (
-        <List.Item data-testid={user.urn}>
+        <List.Item>
             <UserItemContainer>
                 <Link to={entityRegistry.getEntityUrl(EntityType.CorpUser, user.urn)}>
                     <UserHeaderContainer>

@@ -5,6 +5,7 @@ import { BrowserRouter as Router } from 'react-router-dom';
 import { ApolloClient, ApolloProvider, createHttpLink, InMemoryCache, ServerError } from '@apollo/client';
 import { onError } from '@apollo/client/link/error';
 import { ThemeProvider } from 'styled-components';
+import { Helmet, HelmetProvider } from 'react-helmet-async';
 import './App.less';
 import { Routes } from './app/Routes';
 import EntityRegistry from './app/entity/EntityRegistry';
@@ -119,15 +120,20 @@ const App: React.VFC = () => {
     }, []);
 
     return (
-        <ThemeProvider theme={dynamicThemeConfig}>
-            <Router>
-                <EntityRegistryContext.Provider value={entityRegistry}>
-                    <ApolloProvider client={client}>
-                        <Routes />
-                    </ApolloProvider>
-                </EntityRegistryContext.Provider>
-            </Router>
-        </ThemeProvider>
+        <HelmetProvider>
+            <ThemeProvider theme={dynamicThemeConfig}>
+                <Router>
+                    <Helmet>
+                        <title>{dynamicThemeConfig.content.title}</title>
+                    </Helmet>
+                    <EntityRegistryContext.Provider value={entityRegistry}>
+                        <ApolloProvider client={client}>
+                            <Routes />
+                        </ApolloProvider>
+                    </EntityRegistryContext.Provider>
+                </Router>
+            </ThemeProvider>
+        </HelmetProvider>
     );
 };
 
