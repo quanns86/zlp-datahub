@@ -8,14 +8,14 @@ import datahub.emitter.mce_builder as builder
 from datahub.emitter.serialization_helper import post_json_transform
 from datahub.entrypoints import datahub
 from datahub.metadata.schema_classes import DatasetProfileClass
-from tests.utils import ingest_file_via_rest
+from tests.utils import ingest_file_via_rest, wait_for_writes_to_sync
+import requests_wrapper as requests
 
-runner = CliRunner()
+runner = CliRunner(mix_stderr=False)
 
 
 def sync_elastic() -> None:
-    elastic_sync_wait_time_seconds: int = 5
-    time.sleep(elastic_sync_wait_time_seconds)
+    wait_for_writes_to_sync()
 
 
 def datahub_rollback(run_id: str) -> None:
@@ -35,7 +35,7 @@ def datahub_get_and_verify_profile(
     get_args: List[str] = ["get", "--urn", urn, "-a", aspect_name]
     get_result: Result = runner.invoke(datahub, get_args)
     assert get_result.exit_code == 0
-    get_result_output_obj: Dict = json.loads(get_result.output)
+    get_result_output_obj: Dict = json.loads(get_result.stdout)
     if expected_profile is None:
         assert not get_result_output_obj
     else:

@@ -1,6 +1,6 @@
 import logging
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, Iterable, List, Optional, Type, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import datahub.emitter.mce_builder as builder
 from datahub.emitter.aspect import ASPECT_MAP
@@ -9,13 +9,10 @@ from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.common import ControlRecord, EndOfStream, RecordEnvelope
 from datahub.ingestion.api.transform import Transformer
 from datahub.metadata.schema_classes import (
-    DataFlowSnapshotClass,
-    DataJobSnapshotClass,
-    DatasetSnapshotClass,
     MetadataChangeEventClass,
     MetadataChangeProposalClass,
 )
-from datahub.utilities.urns.urn import Urn
+from datahub.utilities.urns.urn import Urn, guess_entity_type
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +36,8 @@ class SingleAspectTransformer(metaclass=ABCMeta):
         """Implement this method to transform a single aspect for an entity.
         param: entity_urn: the entity that is being processed
         param: aspect_name: the aspect name corresponding to the subscription
-        param: aspect: an optional aspect corresponding to the aspect name that the transformer is interested in. Empty if no aspect with this name was produced by the underlying connector"""
+        param: aspect: an optional aspect corresponding to the aspect name that the transformer is interested in. Empty if no aspect with this name was produced by the underlying connector
+        """
         pass
 
 
@@ -55,11 +53,6 @@ class BaseTransformer(Transformer, metaclass=ABCMeta):
 
     def __init__(self):
         self.entity_map: Dict[str, Dict[str, Any]] = {}
-        self.entity_type_mappings: Dict[str, Type] = {
-            "dataset": DatasetSnapshotClass,
-            "dataFlow": DataFlowSnapshotClass,
-            "dataJob": DataJobSnapshotClass,
-        }
         mixedin = False
         for mixin in [LegacyMCETransformer, SingleAspectTransformer]:
             mixedin = mixedin or isinstance(self, mixin)
@@ -71,7 +64,10 @@ class BaseTransformer(Transformer, metaclass=ABCMeta):
     def _should_process(
         self,
         record: Union[
-            MetadataChangeEventClass, MetadataChangeProposalWrapper, ControlRecord
+            MetadataChangeEventClass,
+            MetadataChangeProposalWrapper,
+            MetadataChangeProposalClass,
+            ControlRecord,
         ],
     ) -> bool:
         if isinstance(record, ControlRecord):
@@ -82,14 +78,8 @@ class BaseTransformer(Transformer, metaclass=ABCMeta):
         if "*" in entity_types:
             return True
         if isinstance(record, MetadataChangeEventClass):
-            for e in entity_types:
-                assert (
-                    e in self.entity_type_mappings
-                ), f"Do not have a class mapping for {e}. Subscription to this entity will not work for transforming MCE-s"
-                if isinstance(record.proposedSnapshot, self.entity_type_mappings[e]):
-                    return True
-            # fall through, no entity type matched
-            return False
+            entity_type = guess_entity_type(record.proposedSnapshot.urn)
+            return entity_type in entity_types
         elif isinstance(
             record, (MetadataChangeProposalWrapper, MetadataChangeProposalClass)
         ):
@@ -105,7 +95,9 @@ class BaseTransformer(Transformer, metaclass=ABCMeta):
             record_entry["seen"]["mce"] = mce.systemMetadata
             self.entity_map[mce.proposedSnapshot.urn] = record_entry
 
-    def _record_mcp(self, mcp: MetadataChangeProposalWrapper) -> None:
+    def _record_mcp(
+        self, mcp: Union[MetadataChangeProposalWrapper, MetadataChangeProposalClass]
+    ) -> None:
         assert mcp.entityUrn
         record_entry = self.entity_map.get(mcp.entityUrn, {"seen": {}})
         if "seen" in record_entry and "mcp" not in record_entry["seen"]:
@@ -163,7 +155,7 @@ class BaseTransformer(Transformer, metaclass=ABCMeta):
 
         return envelope
 
-    def _transform_or_record_mcp(
+    def _transform_or_record_mcpw(
         self,
         envelope: RecordEnvelope[MetadataChangeProposalWrapper],
     ) -> Optional[RecordEnvelope[MetadataChangeProposalWrapper]]:
@@ -200,7 +192,7 @@ class BaseTransformer(Transformer, metaclass=ABCMeta):
             elif isinstance(
                 envelope.record, MetadataChangeProposalWrapper
             ) and isinstance(self, SingleAspectTransformer):
-                return_envelope = self._transform_or_record_mcp(envelope)
+                return_envelope = self._transform_or_record_mcpw(envelope)
                 if return_envelope is None:
                     continue
                 else:

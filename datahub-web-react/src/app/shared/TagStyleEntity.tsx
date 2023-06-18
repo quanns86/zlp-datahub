@@ -9,7 +9,7 @@ import ColorHash from 'color-hash';
 import { PlusOutlined } from '@ant-design/icons';
 import { useGetTagQuery } from '../../graphql/tag.generated';
 import { EntityType, FacetMetadata, Maybe, Scalars } from '../../types.generated';
-import { ExpandedOwner } from '../entity/shared/components/styled/ExpandedOwner';
+import { ExpandedOwner } from '../entity/shared/components/styled/ExpandedOwner/ExpandedOwner';
 import { EMPTY_MESSAGES } from '../entity/shared/constants';
 import { navigateToSearchUrl } from '../search/utils/navigateToSearchUrl';
 import { useEntityRegistry } from '../useEntityRegistry';
@@ -23,7 +23,7 @@ import EntityDropdown from '../entity/shared/EntityDropdown';
 import { EntityMenuItems } from '../entity/shared/EntityDropdown/EntityDropdown';
 import { ErrorSection } from './error/ErrorSection';
 import { generateOrFilters } from '../search/utils/generateOrFilters';
-import { UnionType } from '../search/utils/constants';
+import { ENTITY_FILTER_NAME, UnionType } from '../search/utils/constants';
 
 function useWrappedSearchResults(params: GetSearchResultsParams) {
     const { data, loading, error } = useGetSearchResultsForMultipleQuery(params);
@@ -195,15 +195,6 @@ export default function TagStyleEntity({ urn, useGetSearchResults = useWrappedSe
             },
         ]) ||
         [];
-    const entityAndSchemaFilters =
-        (entityUrn && [
-            ...entityFilters,
-            {
-                field: 'fieldTags',
-                values: [entityUrn],
-            },
-        ]) ||
-        [];
 
     const description = data?.tag?.properties?.description || '';
     const [updatedDescription, setUpdatedDescription] = useState('');
@@ -228,7 +219,7 @@ export default function TagStyleEntity({ urn, useGetSearchResults = useWrappedSe
                 query: '*',
                 start: 0,
                 count: 1,
-                orFilters: generateOrFilters(UnionType.OR, entityAndSchemaFilters),
+                orFilters: generateOrFilters(UnionType.OR, entityFilters),
             },
         },
     });
@@ -350,7 +341,7 @@ export default function TagStyleEntity({ urn, useGetSearchResults = useWrappedSe
                         urn={urn}
                         entityType={EntityType.Tag}
                         entityData={data?.tag}
-                        menuItems={new Set([EntityMenuItems.COPY_URL, EntityMenuItems.DELETE])}
+                        menuItems={new Set([EntityMenuItems.DELETE])}
                     />
                 </ActionButtons>
                 {displayColorPicker && (
@@ -395,12 +386,14 @@ export default function TagStyleEntity({ urn, useGetSearchResults = useWrappedSe
                                     <StatsButton
                                         onClick={() =>
                                             navigateToSearchUrl({
-                                                type: aggregation?.value as EntityType,
-                                                filters:
-                                                    aggregation?.value === EntityType.Dataset
-                                                        ? entityAndSchemaFilters
-                                                        : entityFilters,
-                                                unionType: UnionType.OR,
+                                                filters: [
+                                                    ...entityFilters,
+                                                    {
+                                                        field: ENTITY_FILTER_NAME,
+                                                        values: [aggregation.value],
+                                                    },
+                                                ],
+                                                unionType: UnionType.AND,
                                                 history,
                                             })
                                         }

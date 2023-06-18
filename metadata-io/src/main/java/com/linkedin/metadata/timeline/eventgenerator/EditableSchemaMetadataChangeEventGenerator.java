@@ -16,10 +16,12 @@ import com.linkedin.metadata.timeline.data.SemanticChangeType;
 import com.linkedin.schema.EditableSchemaFieldInfo;
 import com.linkedin.schema.EditableSchemaFieldInfoArray;
 import com.linkedin.schema.EditableSchemaMetadata;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -147,8 +149,9 @@ public class EditableSchemaMetadataChangeEventGenerator extends EntityChangeEven
           .category(ChangeCategory.DOCUMENTATION)
           .operation(ChangeOperation.REMOVE)
           .semVerChange(SemanticChangeType.MINOR)
-          .description(String.format(FIELD_DOCUMENTATION_REMOVED_FORMAT, targetFieldInfo.getFieldPath(), datasetFieldUrn,
-              baseFieldDescription))
+          .description(String.format(FIELD_DOCUMENTATION_REMOVED_FORMAT,
+                  Optional.ofNullable(targetFieldInfo).map(EditableSchemaFieldInfo::getFieldPath),
+                  datasetFieldUrn, baseFieldDescription))
           .auditStamp(auditStamp)
           .build();
     }
@@ -218,11 +221,15 @@ public class EditableSchemaMetadataChangeEventGenerator extends EntityChangeEven
   public ChangeTransaction getSemanticDiff(EntityAspect previousValue, EntityAspect currentValue,
       ChangeCategory element, JsonPatch rawDiff, boolean rawDiffsRequested) {
 
+    if (currentValue == null) {
+      throw new IllegalArgumentException("EntityAspect currentValue should not be null");
+    }
+
     if (!previousValue.getAspect().equals(EDITABLE_SCHEMA_METADATA_ASPECT_NAME) || !currentValue.getAspect()
         .equals(EDITABLE_SCHEMA_METADATA_ASPECT_NAME)) {
       throw new IllegalArgumentException("Aspect is not " + EDITABLE_SCHEMA_METADATA_ASPECT_NAME);
     }
-    assert (currentValue != null);
+
     EditableSchemaMetadata baseEditableSchemaMetadata = getEditableSchemaMetadataFromAspect(previousValue);
     EditableSchemaMetadata targetEditableSchemaMetadata = getEditableSchemaMetadataFromAspect(currentValue);
     List<ChangeEvent> changeEvents = new ArrayList<>();

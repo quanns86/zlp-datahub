@@ -9,7 +9,11 @@ import { PostLinkCard } from '../search/PostLinkCard';
 const RecommendationContainer = styled.div`
     margin-bottom: 92px;
     max-width: 1000px;
-    min-width: 750px;
+`;
+
+const ContentContainer = styled.div`
+    padding-right: 12px;
+    padding-left: 12px;
 `;
 
 const ContentContainer = styled.div`
@@ -30,6 +34,9 @@ const ThinDivider = styled(Divider)`
 
 const TextPostsContainer = styled.div`
     margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
 `;
 
 const LinkPostsContainer = styled.div`
@@ -47,6 +54,7 @@ export const HomePagePosts = () => {
                 count: 10,
             },
         },
+        fetchPolicy: 'cache-first',
     });
 
     const textPosts =

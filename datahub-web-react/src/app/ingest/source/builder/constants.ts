@@ -25,8 +25,6 @@ import mariadbLogo from '../../../../images/mariadblogo.png';
 import metabaseLogo from '../../../../images/metabaselogo.png';
 import powerbiLogo from '../../../../images/powerbilogo.png';
 import modeLogo from '../../../../images/modelogo.png';
-import arangoLogo from '../../../../images/arangodblogo.png';
-import tidbLogo from '../../../../images/tidblogo.png';
 
 export const ARANGO = 'arangodb';
 export const ARANGO_URN = `urn:li:dataPlatform:${ARANGO}`;
@@ -97,6 +95,12 @@ export const TRINO = 'trino';
 export const TRINO_URN = `urn:li:dataPlatform:${TRINO}`;
 export const CUSTOM = 'custom';
 export const CUSTOM_URN = `urn:li:dataPlatform:${CUSTOM}`;
+export const UNITY_CATALOG = 'unity-catalog';
+export const UNITY_CATALOG_URN = `urn:li:dataPlatform:${UNITY_CATALOG}`;
+export const DBT_CLOUD = 'dbt-cloud';
+export const DBT_CLOUD_URN = `urn:li:dataPlatform:dbt`;
+export const VERTICA = 'vertica';
+export const VERTICA_URN = `urn:li:dataPlatform:${VERTICA}`;
 
 export const PLATFORM_URN_TO_LOGO = {
     [TIDB_URN]: tidbLogo,
@@ -128,6 +132,8 @@ export const PLATFORM_URN_TO_LOGO = {
     [TABLEAU_URN]: tableauLogo,
     [TRINO_URN]: trinoLogo,
     [SUPERSET_URN]: supersetLogo,
+    [UNITY_CATALOG_URN]: databricksLogo,
+    [VERTICA_URN]: verticaLogo,
 };
 
 export const SOURCE_TO_PLATFORM_URN = {
@@ -140,4 +146,6 @@ export const SOURCE_TO_PLATFORM_URN = {
     [SNOWFLAKE_BETA]: SNOWFLAKE_URN,
     [SNOWFLAKE_USAGE]: SNOWFLAKE_URN,
     [STARBURST_TRINO_USAGE]: TRINO_URN,
+    [DBT_CLOUD]: DBT_URN,
+    [VERTICA]: VERTICA_URN,
 };

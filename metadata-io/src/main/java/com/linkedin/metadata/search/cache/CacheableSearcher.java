@@ -6,6 +6,7 @@ import com.linkedin.metadata.search.SearchEntity;
 import com.linkedin.metadata.search.SearchEntityArray;
 import com.linkedin.metadata.search.SearchResult;
 import com.linkedin.metadata.utils.metrics.MetricUtils;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
@@ -14,6 +15,8 @@ import javax.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.Value;
 import org.springframework.cache.Cache;
+
+import static com.datahub.util.RecordUtils.*;
 
 
 /**
@@ -33,7 +36,7 @@ public class CacheableSearcher<K> {
   private final boolean enableCache;
 
   @Value
-  public static class QueryPagination {
+  public static class QueryPagination implements Serializable {
     int from;
     int size;
   }
@@ -87,26 +90,30 @@ public class CacheableSearcher<K> {
     try (Timer.Context ignored = MetricUtils.timer(this.getClass(), "getBatch").time()) {
       QueryPagination batch = getBatchQuerySize(batchId);
       SearchResult result;
-      if (enableCache()) {
-        Timer.Context cacheAccess = MetricUtils.timer(this.getClass(), "getBatch_cache_access").time();
+      if (enableCache) {
         K cacheKey = cacheKeyGenerator.apply(batch);
-        result = cache.get(cacheKey, SearchResult.class);
-        cacheAccess.stop();
-        if (result == null) {
-          Timer.Context cacheMiss = MetricUtils.timer(this.getClass(), "getBatch_cache_miss").time();
+        if ((searchFlags == null || !searchFlags.isSkipCache())) {
+          try (Timer.Context ignored2 = MetricUtils.timer(this.getClass(), "getBatch_cache").time()) {
+            Timer.Context cacheAccess = MetricUtils.timer(this.getClass(), "getBatch_cache_access").time();
+            String json = cache.get(cacheKey, String.class);
+            result = json != null ? toRecordTemplate(SearchResult.class, json) : null;
+            cacheAccess.stop();
+            if (result == null) {
+              Timer.Context cacheMiss = MetricUtils.timer(this.getClass(), "getBatch_cache_miss").time();
+              result = searcher.apply(batch);
+              cache.put(cacheKey, toJsonString(result));
+              cacheMiss.stop();
+              MetricUtils.counter(this.getClass(), "getBatch_cache_miss_count").inc();
+            }
+          }
+        } else {
           result = searcher.apply(batch);
-          cache.put(cacheKey, result);
-          cacheMiss.stop();
-          MetricUtils.counter(this.getClass(), "getBatch_cache_miss_count").inc();
+          cache.put(cacheKey, toJsonString(result));
         }
       } else {
         result = searcher.apply(batch);
       }
       return result;
     }
-  }
-
-  private boolean enableCache() {
-    return enableCache && (searchFlags == null || !searchFlags.isSkipCache());
   }
 }

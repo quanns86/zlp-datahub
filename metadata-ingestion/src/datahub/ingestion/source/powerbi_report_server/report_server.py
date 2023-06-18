@@ -5,7 +5,7 @@
 #########################################################
 import logging
 from dataclasses import dataclass, field as dataclass_field
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 import pydantic
 import requests
@@ -14,7 +14,7 @@ from requests_ntlm import HttpNtlmAuth
 
 import datahub.emitter.mce_builder as builder
 from datahub.configuration.common import AllowDenyPattern
-from datahub.configuration.source_common import EnvBasedSourceConfigBase
+from datahub.configuration.source_common import EnvConfigMixin
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.common import PipelineContext
 from datahub.ingestion.api.decorators import (
@@ -26,6 +26,7 @@ from datahub.ingestion.api.decorators import (
     support_status,
 )
 from datahub.ingestion.api.source import Source, SourceReport
+from datahub.ingestion.api.source_helpers import auto_workunit_reporter
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.ingestion.source.powerbi_report_server.constants import (
     API_ENDPOINTS,
@@ -58,7 +59,7 @@ from datahub.utilities.dedup_list import deduplicate_list
 LOGGER = logging.getLogger(__name__)
 
 
-class PowerBiReportServerAPIConfig(EnvBasedSourceConfigBase):
+class PowerBiReportServerAPIConfig(EnvConfigMixin):
     username: str = pydantic.Field(description="Windows account username")
     password: str = pydantic.Field(description="Windows account password")
     workstation_name: str = pydantic.Field(
@@ -68,7 +69,9 @@ class PowerBiReportServerAPIConfig(EnvBasedSourceConfigBase):
     server_alias: str = pydantic.Field(
         default="", description="Alias for Power BI Report Server host URL"
     )
-    graphql_url: str = pydantic.Field(description="GraphQL API URL")
+    graphql_url: Optional[str] = pydantic.Field(
+        default=None, description="[deprecated] Not used"
+    )
     report_virtual_directory_name: str = pydantic.Field(
         description="Report Virtual Directory URL name"
     )
@@ -508,6 +511,9 @@ class PowerBiReportServerDashboardSource(Source):
         return cls(config, ctx)
 
     def get_workunits(self) -> Iterable[MetadataWorkUnit]:
+        return auto_workunit_reporter(self.report, self.get_workunits_internal())
+
+    def get_workunits_internal(self) -> Iterable[MetadataWorkUnit]:
         """
         Datahub Ingestion framework invoke this method
         """
@@ -530,12 +536,7 @@ class PowerBiReportServerDashboardSource(Source):
                 self.report.report_scanned(count=1)
             # Convert PowerBi Report Server Dashboard and child entities
             # to Datahub work unit to ingest into Datahub
-            workunits = self.mapper.to_datahub_work_units(report)
-            for workunit in workunits:
-                # Add workunit to report
-                self.report.report_workunit(workunit)
-                # Return workunit to Datahub Ingestion framework
-                yield workunit
+            yield from self.mapper.to_datahub_work_units(report)
 
     def get_user_info(self, report: Any) -> OwnershipData:
         existing_ownership: List[OwnerClass] = []
@@ -570,6 +571,3 @@ class PowerBiReportServerDashboardSource(Source):
 
     def get_report(self) -> SourceReport:
         return self.report
-
-    def close(self):
-        pass

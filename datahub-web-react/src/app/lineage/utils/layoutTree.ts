@@ -24,6 +24,14 @@ const UPSTREAM_X_MODIFIER = -1;
 const UPSTREAM_DIRECTION_SHIFT = -20;
 const COLUMN_HEIGHT_BUFFER = 1.2;
 
+function getParentRelationship(direction: Direction, parent: VizNode | null, node: NodeData) {
+    const directionRelationships =
+        direction === Direction.Downstream
+            ? parent?.data?.downstreamRelationships
+            : parent?.data?.upstreamRelationships;
+    return directionRelationships?.find((r) => r?.entity?.urn === node?.urn);
+}
+
 function layoutNodesForOneDirection(
     data: NodeData,
     direction: Direction,
@@ -63,7 +71,7 @@ function layoutNodesForOneDirection(
                 (nodeHeightFromTitleLength(undefined, undefined, showColumns, false) + VERTICAL_SPACE_BETWEEN_NODES) *
                 (layerSize - 1)
             ) /
-                2 +
+            2 +
             canvasHeight / 2 +
             HEADER_HEIGHT;
 
@@ -82,17 +90,17 @@ function layoutNodesForOneDirection(
                 vizNodeForNode =
                     node.urn in draggedNodes
                         ? {
-                              data: node,
-                              x: draggedNodes[node.urn].x,
-                              y: draggedNodes[node.urn].y,
-                              direction,
-                          }
+                            data: node,
+                            x: draggedNodes[node.urn].x,
+                            y: draggedNodes[node.urn].y,
+                            direction,
+                        }
                         : {
-                              data: node,
-                              x: currentXPosition,
-                              y: HORIZONTAL_SPACE_PER_LAYER * numInCurrentLayer * xModifier,
-                              direction,
-                          };
+                            data: node,
+                            x: currentXPosition,
+                            y: HORIZONTAL_SPACE_PER_LAYER * numInCurrentLayer * xModifier,
+                            direction,
+                        };
                 currentXPosition +=
                     nodeHeightFromTitleLength(
                         expandTitles ? node.expandedName || node.name : undefined,
@@ -109,10 +117,6 @@ function layoutNodesForOneDirection(
                         node: child,
                     })) || []),
                 ];
-                if (!renderedNodeUrns.has(node.urn)) {
-                    nodesToRender.push(vizNodeForNode);
-                    renderedNodeUrns.add(node.urn);
-                }
             }
 
             if (parent) {
@@ -125,29 +129,35 @@ function layoutNodesForOneDirection(
                 // if the nodes are inverted, we want to draw the edge slightly differently
                 const curve = parentIsBehindChild
                     ? [
-                          { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
-                          { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
-                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
-                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
-                      ]
+                        { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
+                        { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
+                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
+                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
+                    ]
                     : [
-                          { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
-                          { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
-                          {
-                              x: parent.x + CURVE_PADDING * (parentIsHigher ? -1 : 1),
-                              y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier,
-                          },
-                          {
-                              x: vizNodeForNode.x + CURVE_PADDING * (parentIsHigher ? 1 : -1),
-                              y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier,
-                          },
-                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
-                          { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
-                      ];
+                        { x: parent.x, y: parent.y + INSIDE_NODE_SHIFT * xModifier + directionShift },
+                        { x: parent.x, y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier },
+                        {
+                            x: parent.x + CURVE_PADDING * (parentIsHigher ? -1 : 1),
+                            y: parent.y + (INSIDE_NODE_SHIFT + CURVE_PADDING) * xModifier,
+                        },
+                        {
+                            x: vizNodeForNode.x + CURVE_PADDING * (parentIsHigher ? 1 : -1),
+                            y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier,
+                        },
+                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2 + CURVE_PADDING) * xModifier },
+                        { x: vizNodeForNode.x, y: vizNodeForNode.y - (nodeWidth / 2) * xModifier + directionShift },
+                    ];
+
+                const relationship = getParentRelationship(direction, parent, node);
 
                 const vizEdgeForPair = {
                     source: parent,
                     target: vizNodeForNode,
+                    createdActor: relationship?.createdActor,
+                    createdOn: relationship?.createdOn,
+                    updatedOn: relationship?.updatedOn,
+                    isManual: relationship?.isManual || false,
                     curve,
                 };
                 edgesToRender.push(vizEdgeForPair);

@@ -17,8 +17,8 @@ import { DocumentationTab } from '../../../tabs/Documentation/DocumentationTab';
 import { LineageTab } from '../../../tabs/Lineage/LineageTab';
 import { PropertiesTab } from '../../../tabs/Properties/PropertiesTab';
 import { SidebarStatsSection } from '../sidebar/Dataset/StatsSidebarSection';
-import { SidebarOwnerSection } from '../sidebar/Ownership/SidebarOwnerSection';
-import { SidebarAboutSection } from '../sidebar/SidebarAboutSection';
+import { SidebarOwnerSection } from '../sidebar/Ownership/sidebar/SidebarOwnerSection';
+import { SidebarAboutSection } from '../sidebar/AboutSection/SidebarAboutSection';
 import { SidebarTagsSection } from '../sidebar/SidebarTagsSection';
 
 describe('EntityProfile', () => {

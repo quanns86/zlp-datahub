@@ -30,6 +30,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static com.linkedin.datahub.graphql.resolvers.ResolverUtils.bindArgument;
+import static com.linkedin.datahub.graphql.resolvers.mutate.util.OwnerUtils.*;
+
 
 @Slf4j
 @RequiredArgsConstructor
@@ -46,7 +48,7 @@ public class CreateGlossaryNodeResolver implements DataFetcher<CompletableFuture
     final Urn parentNode = input.getParentNode() != null ? UrnUtils.getUrn(input.getParentNode()) : null;
 
     return CompletableFuture.supplyAsync(() -> {
-      if (GlossaryUtils.canManageChildrenEntities(context, parentNode)) {
+      if (GlossaryUtils.canManageChildrenEntities(context, parentNode, _entityClient)) {
         try {
           final GlossaryNodeKey key = new GlossaryNodeKey();
 
@@ -65,7 +67,14 @@ public class CreateGlossaryNodeResolver implements DataFetcher<CompletableFuture
           proposal.setChangeType(ChangeType.UPSERT);
 
           String glossaryNodeUrn = _entityClient.ingestProposal(proposal, context.getAuthentication());
-          OwnerUtils.addCreatorAsOwner(context, glossaryNodeUrn, OwnerEntityType.CORP_USER, OwnershipType.TECHNICAL_OWNER, _entityService);
+
+          OwnershipType ownershipType = OwnershipType.TECHNICAL_OWNER;
+          if (!_entityService.exists(UrnUtils.getUrn(mapOwnershipTypeToEntity(ownershipType.name())))) {
+            log.warn("Technical owner does not exist, defaulting to None ownership.");
+            ownershipType = OwnershipType.NONE;
+          }
+
+          OwnerUtils.addCreatorAsOwner(context, glossaryNodeUrn, OwnerEntityType.CORP_USER, ownershipType, _entityService);
           return glossaryNodeUrn;
         } catch (Exception e) {
           log.error("Failed to create GlossaryNode with id: {}, name: {}: {}", input.getId(), input.getName(), e.getMessage());

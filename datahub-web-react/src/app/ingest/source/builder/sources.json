@@ -1,33 +1,5 @@
 [
   {
-    "urn": "urn:li:dataPlatform:hdfs",
-    "name": "hdfs",
-    "displayName": "HDFS",
-    "docsUrl": "",
-    "recipe": "source: \n    type: hdfs\n    config:       \n        env: 'PROD'\n        database: 'data_platform'\n        hadoop_host: hadoopmaster.zalopay.vn\n        location:\n            - '/'            \n        merge_schema: true\n        infer_latest: false\n        recursive: true\n        format: 'parquet'         \n        schema_pattern:\n            deny:\n                - '.*staging.*'\n                - '.*trash.*'\n        domain:\n            risk:\n                allow:\n                    - '.*'\n        \n        stateful_ingestion:\n            enabled: false\n            remove_stale_metadata: true\ndatahub_api:\n    server: 'http://datahub-gms:8080'\nsink: \n    type: datahub-rest\n    config: \n        server: \"http://datahub-gms:8080"
-  },
-  {
-    "urn": "urn:li:dataPlatform:arangodb",
-    "name": "arangodb",
-    "displayName": "ArangoDB",
-    "docsUrl": "",
-    "recipe": "source:\n  type: arangodb\n  config:\n    # Coordinates\n    host_port: # Your ArangoDB host and port, e.g. http://arangodb:8529\n    database: # Your ArangoDB database name, e.g. user_network (Optional, if not specified, ingests from all databases)\n\n    # Credentials\n    username: # Your ArangoDB username, e.g. admin\n    password: # Your ArangoDB password, e.g. password_01\n\nsink:\n  type: datahub-rest\n  config:\n    server: \"${baseUrl}/api/gms"
-  },
-  {
-    "urn": "urn:li:dataPlatform:hive",
-    "name": "hive",
-    "displayName": "Hive",
-    "docsUrl": "",
-    "recipe": "source: \n    type: hive\n    config:\n        # Coordinates\n        host_port: # Your Hive host and port, e.g. hive:10000\n        database: # Your Hive database name, e.g. SampleDatabase (Optional, if not specified, ingests from all databases)\n\n        # Credentials\n        # Add secret in Secrets Tab with relevant names for each variable\n        username: \"${HIVE_USERNAME}\" # Your Hive username, e.g. admin\n        password: \"${HIVE_PASSWORD}\"# Your Hive password, e.g. password_01\n        stateful_ingestion:\n            enabled: true"
-  },
-  {
-    "urn": "urn:li:dataPlatform:tidb",
-    "name": "tidb",
-    "displayName": "TiDB",
-    "docsUrl": "",
-    "recipe": "source: \n    type: tidb\n    config: \n        # Coordinates\n        host_port: # Your MySQL host and post, e.g. tidb:3306\n        database: # Your MySQL database name, e.g. datahub\n    \n        # Credentials\n        username: # Your MySQL username, e.g. admin\n        password: # Your MySQL password, e.g. password_01\n\n        # Options\n        include_tables: True\n        include_views: True\n\n        # Profiling\n        profiling:\n            enabled: false\nsink: \n    type: datahub-rest \n    config: \n        server: \"${baseUrl}/api/gms"
-  },
-  {
     "urn": "urn:li:dataPlatform:bigquery",
     "name": "bigquery",
     "displayName": "BigQuery",

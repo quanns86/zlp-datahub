@@ -25,6 +25,9 @@ export enum PageRoutes {
     SETTINGS = '/settings',
     DOMAINS = '/domains',
     GLOSSARY = '/glossary',
+    SETTINGS_VIEWS = '/settings/views',
+    EMBED = '/embed',
+    EMBED_LOOKUP = '/embed/lookup/:url',
 }
 
 /**

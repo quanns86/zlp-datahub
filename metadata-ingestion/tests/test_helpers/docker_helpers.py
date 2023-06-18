@@ -1,9 +1,12 @@
 import contextlib
+import logging
 import subprocess
 from typing import Callable, Optional, Union
 
 import pytest
 import pytest_docker.plugin
+
+logger = logging.getLogger(__name__)
 
 
 def is_responsive(container_name: str, port: int, hostname: Optional[str]) -> bool:
@@ -24,7 +27,7 @@ def wait_for_port(
     docker_services: pytest_docker.plugin.Services,
     container_name: str,
     container_port: int,
-    hostname: str = None,
+    hostname: Optional[str] = None,
     timeout: float = 30.0,
     pause: float = 0.5,
     checker: Optional[Callable[[], bool]] = None,
@@ -37,9 +40,19 @@ def wait_for_port(
             if checker
             else lambda: is_responsive(container_name, container_port, hostname),
         )
+        logger.info(f"Container {container_name} is ready!")
     finally:
         # use check=True to raise an error if command gave bad exit code
         subprocess.run(f"docker logs {container_name}", shell=True, check=True)
+
+
+@pytest.fixture(scope="session")
+def docker_compose_command():
+    """Docker Compose command to use, it could be either `docker-compose`
+    for Docker Compose v1 or `docker compose` for Docker Compose
+    v2."""
+
+    return "docker compose"
 
 
 @pytest.fixture(scope="module")
@@ -48,14 +61,14 @@ def docker_compose_runner(
 ):
     @contextlib.contextmanager
     def run(
-        compose_file_path: Union[str, list], key: str
+        compose_file_path: Union[str, list], key: str, cleanup: bool = True
     ) -> pytest_docker.plugin.Services:
         with pytest_docker.plugin.get_docker_services(
             docker_compose_command=docker_compose_command,
             docker_compose_file=compose_file_path,
             docker_compose_project_name=f"{docker_compose_project_name}-{key}",
             docker_setup=docker_setup,
-            docker_cleanup=docker_cleanup,
+            docker_cleanup=docker_cleanup if cleanup else False,
         ) as docker_services:
             yield docker_services
 

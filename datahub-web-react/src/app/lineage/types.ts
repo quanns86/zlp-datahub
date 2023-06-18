@@ -16,6 +16,9 @@ import {
     FineGrainedLineage,
     SchemaMetadata,
     InputFields,
+    Entity,
+    LineageRelationship,
+    SiblingProperties,
 } from '../../types.generated';
 
 export type EntitySelectParams = {
@@ -39,16 +42,20 @@ export type FetchedEntity = {
     icon?: string;
     // children?: Array<string>;
     upstreamChildren?: Array<EntityAndType>;
+    upstreamRelationships?: Array<LineageRelationship>;
     numUpstreamChildren?: number;
     downstreamChildren?: Array<EntityAndType>;
+    downstreamRelationships?: Array<LineageRelationship>;
     numDownstreamChildren?: number;
     fullyFetched?: boolean;
     platform?: DataPlatform;
     status?: Maybe<Status>;
     siblingPlatforms?: Maybe<DataPlatform[]>;
     fineGrainedLineages?: [FineGrainedLineage];
+    siblings?: Maybe<SiblingProperties>;
     schemaMetadata?: SchemaMetadata;
     inputFields?: InputFields;
+    canEditLineage?: boolean;
 };
 
 export type NodeData = {
@@ -69,6 +76,9 @@ export type NodeData = {
     siblingPlatforms?: Maybe<DataPlatform[]>;
     schemaMetadata?: SchemaMetadata;
     inputFields?: InputFields;
+    canEditLineage?: boolean;
+    upstreamRelationships?: Array<LineageRelationship>;
+    downstreamRelationships?: Array<LineageRelationship>;
 };
 
 export type VizNode = {
@@ -81,9 +91,14 @@ export type VizNode = {
 export type VizEdge = {
     source: VizNode;
     target: VizNode;
+    curve: { x: number; y: number }[];
     sourceField?: string;
     targetField?: string;
-    curve: { x: number; y: number }[];
+    createdOn?: Maybe<number>;
+    createdActor?: Maybe<Entity>;
+    updatedOn?: Maybe<number>;
+    updatedActor?: Maybe<Entity>;
+    isManual?: boolean;
 };
 
 export type ColumnEdge = {
@@ -119,44 +134,54 @@ export type TreeProps = {
 
 export type EntityAndType =
     | {
-          type: EntityType.Dataset;
-          entity: Dataset;
-      }
+        type: EntityType.Dataset;
+        entity: Dataset;
+    }
     | {
-          type: EntityType.Chart;
-          entity: Chart;
-      }
+        type: EntityType.Chart;
+        entity: Chart;
+    }
     | {
-          type: EntityType.Dashboard;
-          entity: Dashboard;
-      }
+        type: EntityType.Dashboard;
+        entity: Dashboard;
+    }
     | {
-          type: EntityType.DataJob;
-          entity: DataJob;
-      }
+        type: EntityType.DataJob;
+        entity: DataJob;
+    }
     | {
-          type: EntityType.MlfeatureTable;
-          entity: MlFeatureTable;
-      }
+        type: EntityType.MlfeatureTable;
+        entity: MlFeatureTable;
+    }
     | {
-          type: EntityType.Mlfeature;
-          entity: MlFeature;
-      }
+        type: EntityType.Mlfeature;
+        entity: MlFeature;
+    }
     | {
-          type: EntityType.Mlmodel;
-          entity: MlModel;
-      }
+        type: EntityType.Mlmodel;
+        entity: MlModel;
+    }
     | {
-          type: EntityType.MlmodelGroup;
-          entity: MlModelGroup;
-      }
+        type: EntityType.MlmodelGroup;
+        entity: MlModelGroup;
+    }
     | {
-          type: EntityType.MlprimaryKey;
-          entity: MlPrimaryKey;
-      };
+        type: EntityType.MlprimaryKey;
+        entity: MlPrimaryKey;
+    };
 
 export interface LineageResult {
     urn: string;
     upstream?: Maybe<{ __typename?: 'EntityLineageResult' } & FullLineageResultsFragment>;
     downstream?: Maybe<{ __typename?: 'EntityLineageResult' } & FullLineageResultsFragment>;
+}
+
+export interface UpdatedLineages {
+    [urn: string]: UpdatedLineage;
+}
+
+export interface UpdatedLineage {
+    lineageDirection: Direction;
+    entitiesToAdd: Entity[];
+    urnsToRemove: string[];
 }

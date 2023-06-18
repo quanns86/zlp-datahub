@@ -1,6 +1,8 @@
 import * as QueryString from 'query-string';
+import { Maybe } from 'graphql/jsutils/Maybe';
 
-import { MatchedField } from '../../../types.generated';
+import { Entity, EntityType, MatchedField, EntityRelationshipsResult, DataProduct } from '../../../types.generated';
+import { capitalizeFirstLetterOnly } from '../../shared/textUtil';
 import { FIELDS_TO_HIGHLIGHT } from '../dataset/search/highlights';
 import { GenericEntityProperties } from './types';
 
@@ -71,7 +73,7 @@ export const singularizeCollectionName = (collectionName: string): string => {
 };
 
 export function getPlatformName(entityData: GenericEntityProperties | null) {
-    return entityData?.platform?.properties?.displayName || entityData?.platform?.name;
+    return entityData?.platform?.properties?.displayName || capitalizeFirstLetterOnly(entityData?.platform?.name);
 }
 
 export const EDITED_DESCRIPTIONS_CACHE_NAME = 'editedDescriptions';
@@ -124,3 +126,47 @@ export const getMatchPrioritizingPrimary = (
 
     return fromQueryGetBestMatch(matchesThatShouldBeShownOnFE, query);
 };
+
+function getGraphqlErrorCode(e) {
+    if (e.graphQLErrors && e.graphQLErrors.length) {
+        const firstError = e.graphQLErrors[0];
+        const { extensions } = firstError;
+        const errorCode = extensions && (extensions.code as number);
+        return errorCode;
+    }
+    return undefined;
+}
+
+export const handleBatchError = (urns, e, defaultMessage) => {
+    if (urns.length > 1 && getGraphqlErrorCode(e) === 403) {
+        return {
+            content:
+                'Your bulk edit selection included entities that you are unauthorized to update. The bulk edit being performed will not be saved.',
+            duration: 3,
+        };
+    }
+    return defaultMessage;
+};
+
+// put all of the fineGrainedLineages for a given entity and its siblings into one array so we have all of it in one place
+export function getFineGrainedLineageWithSiblings(
+    entityData: GenericEntityProperties | null,
+    getGenericEntityProperties: (type: EntityType, data: Entity) => GenericEntityProperties | null,
+) {
+    const fineGrainedLineages = [...(entityData?.fineGrainedLineages || [])];
+    entityData?.siblings?.siblings?.forEach((sibling) => {
+        if (sibling) {
+            const genericSiblingProps = getGenericEntityProperties(sibling.type, sibling);
+            if (genericSiblingProps && genericSiblingProps.fineGrainedLineages) {
+                fineGrainedLineages.push(...genericSiblingProps.fineGrainedLineages);
+            }
+        }
+    });
+    return fineGrainedLineages;
+}
+export function getDataProduct(dataProductResult: Maybe<EntityRelationshipsResult> | undefined) {
+    if (dataProductResult?.relationships && dataProductResult.relationships.length > 0) {
+        return dataProductResult.relationships[0].entity as DataProduct;
+    }
+    return null;
+}

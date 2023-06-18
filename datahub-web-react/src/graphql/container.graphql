@@ -1,6 +1,7 @@
 query getContainer($urn: String!) {
     container(urn: $urn) {
         urn
+        exists
         lastIngested
         platform {
             ...platformFields
@@ -43,6 +44,7 @@ query getContainer($urn: String!) {
         domain {
             ...entityDomain
         }
+        ...entityDataProduct
         deprecation {
             ...deprecationFields
         }
