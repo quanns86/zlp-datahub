@@ -275,7 +275,7 @@ plugins: Dict[str, Set[str]] = {
     # PyAthena is pinned with exact version because we use private method in PyAthena
     "athena": sql_common | {"PyAthena[SQLAlchemy]==2.4.1"},
     "azure-ad": set(),
-    "bigquery-legacy": sql_common
+    "bigquery": sql_common
     | bigquery_common
     | {
         *sqllineage_lib,
