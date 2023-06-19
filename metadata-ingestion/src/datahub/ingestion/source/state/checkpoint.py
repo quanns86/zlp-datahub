@@ -127,12 +127,6 @@ class Checkpoint(Generic[StateType]):
                         functools.partial(bz2.decompress),
                         state_class,
                     )
-                elif checkpoint_aspect.state.serde == "base85-bz2-json":
-                    state_obj = Checkpoint._from_base85_json_bytes(
-                        checkpoint_aspect,
-                        functools.partial(bz2.decompress),
-                        state_class,
-                    )
                 else:
                     raise ValueError(f"Unknown serde: {checkpoint_aspect.state.serde}")
             except Exception as e:

@@ -11,7 +11,6 @@ from snowflake.connector import SnowflakeConnection
 
 from datahub.configuration.pattern_utils import is_schema_allowed
 from datahub.emitter.mce_builder import (
-    make_container_urn,
     make_data_platform_urn,
     make_dataset_urn,
     make_dataset_urn_with_platform_instance,

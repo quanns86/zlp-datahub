@@ -29,7 +29,6 @@ from datahub.ingestion.source.sql.sql_common import (
 from datahub.ingestion.source.sql.sql_config import (
     BasicSQLAlchemyConfig,
     make_sqlalchemy_uri,
-    register_custom_type,
 )
 from datahub.metadata.schema_classes import BooleanTypeClass, UnionTypeClass
 

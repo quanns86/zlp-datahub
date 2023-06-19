@@ -104,60 +104,6 @@ def test_checkpoint_serde(state_obj: CheckpointStateBase) -> None:
 
     _assert_checkpoint_deserialization(checkpoint_state, state_obj)
 
-    return checkpoint_obj
-
-
-# 2. Create the params for parametrized tests.
-
-
-def _make_sql_alchemy_checkpoint_state() -> BaseSQLAlchemyCheckpointState:
-    base_sql_alchemy_checkpoint_state_obj = BaseSQLAlchemyCheckpointState()
-    base_sql_alchemy_checkpoint_state_obj.add_checkpoint_urn(
-        type="table", urn=make_dataset_urn("mysql", "db1.t1", "prod")
-    )
-    base_sql_alchemy_checkpoint_state_obj.add_checkpoint_urn(
-        type="view", urn=make_dataset_urn("mysql", "db1.v1", "prod")
-    )
-    return base_sql_alchemy_checkpoint_state_obj
-
-
-def _make_usage_checkpoint_state() -> BaseUsageCheckpointState:
-    base_usage_checkpoint_state_obj = BaseUsageCheckpointState(
-        version="2.0", begin_timestamp_millis=1, end_timestamp_millis=100
-    )
-    return base_usage_checkpoint_state_obj
-
-
-_checkpoint_aspect_test_cases: Dict[str, CheckpointStateBase] = {
-    # An instance of BaseSQLAlchemyCheckpointState.
-    "BaseSQLAlchemyCheckpointState": _make_sql_alchemy_checkpoint_state(),
-    # An instance of BaseUsageCheckpointState.
-    "BaseUsageCheckpointState": _make_usage_checkpoint_state(),
-}
-
-
-# 3. Define the test with the params
-
-
-@pytest.mark.parametrize(
-    "state_obj",
-    _checkpoint_aspect_test_cases.values(),
-    ids=_checkpoint_aspect_test_cases.keys(),
-)
-def test_checkpoint_serde(state_obj: CheckpointStateBase) -> None:
-    """
-    Tests CheckpointStateBase.to_bytes() and Checkpoint.create_from_checkpoint_aspect().
-    """
-
-    # 1. Construct the raw aspect object with the state
-    checkpoint_state = IngestionCheckpointStateClass(
-        formatVersion=state_obj.version,
-        serde=state_obj.serde,
-        payload=state_obj.to_bytes(),
-    )
-
-    _assert_checkpoint_deserialization(checkpoint_state, state_obj)
-
 
 @pytest.mark.parametrize(
     "state_obj",

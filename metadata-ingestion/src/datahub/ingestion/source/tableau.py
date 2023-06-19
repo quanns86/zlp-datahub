@@ -123,10 +123,6 @@ from datahub.metadata.schema_classes import (
     ViewPropertiesClass,
 )
 from datahub.utilities import config_clean
-from datahub.utilities.source_helpers import (
-    auto_stale_entity_removal,
-    auto_status_aspect,
-)
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -1887,44 +1883,6 @@ class TableauSource(StatefulIngestionSourceBase):
                 field.get(tableau_constant.DATA_SOURCE)[tableau_constant.ID]
                 if field.get(tableau_constant.DATA_SOURCE)
                 else None
-            )
-            if name and upstream_ds_id:
-                input_fields.append(
-                    InputField(
-                        schemaFieldUrn=builder.make_schema_field_urn(
-                            parent_urn=builder.make_dataset_urn_with_platform_instance(
-                                self.platform,
-                                upstream_ds_id,
-                                self.config.platform_instance,
-                                self.config.env,
-                            ),
-                            field_path=name,
-                        ),
-                        schemaField=tableau_field_to_schema_field(
-                            field, self.config.ingest_tags
-                        ),
-                    )
-                )
-
-            if input_fields:
-                wu = MetadataChangeProposalWrapper(
-                    entityUrn=sheet_urn,
-                    aspect=InputFields(
-                        fields=sorted(input_fields, key=lambda x: x.schemaFieldUrn)
-                    ),
-                ).as_workunit()
-                self.report.report_workunit(wu)
-                yield wu
-
-    def populate_sheet_upstream_fields(
-        self, sheet: dict, input_fields: List[InputField]
-    ) -> None:
-        for field in sheet.get("datasourceFields"):  # type: ignore
-            if not field:
-                continue
-            name = field.get("name")
-            upstream_ds_id = (
-                field.get("datasource")["id"] if field.get("datasource") else None
             )
             if name and upstream_ds_id:
                 input_fields.append(

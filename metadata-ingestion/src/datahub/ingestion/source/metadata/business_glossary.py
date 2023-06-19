@@ -110,16 +110,6 @@ class BusinessGlossaryConfig(DefaultConfig):
             raise ValueError("Only version 1 is supported")
         return v
 
-def make_glossary_node_urn(
-    path: List[str], default_id: Optional[str], enable_auto_id: bool
-) -> str:
-    if default_id is not None and default_id.startswith("urn:li:glossaryNode:"):
-        logger.debug(
-            f"node's default_id({default_id}) is in urn format for path {path}. Returning same as urn"
-        )
-        return default_id
-
-    return "urn:li:glossaryNode:" + create_id(path, default_id, enable_auto_id)
 
 def create_id(path: List[str], default_id: Optional[str], enable_auto_id: bool) -> str:
     if default_id is not None:
@@ -486,29 +476,6 @@ def populate_path_vs_id(glossary: BusinessGlossaryConfig) -> Dict[str, str]:
     _process_child_terms(glossary, [])
 
     return path_vs_id
-
-
-def populate_path_vs_id(glossary: BusinessGlossaryConfig) -> None:
-    path: List[str] = []
-
-    def _process_child_terms(parent_node: GlossaryNodeConfig, path: List[str]) -> None:
-        path_vs_id[".".join(path + [parent_node.name])] = parent_node.id
-
-        if parent_node.terms:
-            for term in parent_node.terms:
-                path_vs_id[".".join(path + [parent_node.name] + [term.name])] = term.id
-
-        if parent_node.nodes:
-            for node in parent_node.nodes:
-                _process_child_terms(node, path + [parent_node.name])
-
-    if glossary.nodes:
-        for node in glossary.nodes:
-            _process_child_terms(node, path)
-
-    if glossary.terms:
-        for term in glossary.terms:
-            path_vs_id[".".join(path + [term.name])] = term.id
 
 
 @platform_name("Business Glossary")

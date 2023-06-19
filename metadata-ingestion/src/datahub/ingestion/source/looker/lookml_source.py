@@ -1294,10 +1294,6 @@ class LookerView:
 
         sql_table_names = [table for table in sql_table_names if "{%" not in table]
 
-        # remove fields or sql tables that contain liquid variables
-        fields = [f for f in fields if "{%" not in f.name]
-        sql_table_names = [table for table in sql_table_names if "{%" not in table]
-
         return fields, sql_table_names
 
     @classmethod

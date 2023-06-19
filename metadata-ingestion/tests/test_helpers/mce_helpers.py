@@ -158,10 +158,6 @@ def check_golden_file(
         if update_golden:
             shutil.copyfile(str(output_path), str(golden_path))
 
-        if copy_output:
-            shutil.copyfile(str(output_path), str(golden_path) + ".output")
-            print(f"Copied output file to {golden_path}.output")
-
         # raise the error if we're just running the test
         else:
             raise e

@@ -74,13 +74,6 @@ class Architectures(Enum):
     m2 = "m2"
 
 
-class Architectures(Enum):
-    x86 = "x86"
-    arm64 = "arm64"
-    m1 = "m1"
-    m2 = "m2"
-
-
 @functools.lru_cache()
 def _docker_subprocess_env() -> Dict[str, str]:
     # platform.machine() is equivalent to `uname -m`, as per https://stackoverflow.com/a/45124927/5004662

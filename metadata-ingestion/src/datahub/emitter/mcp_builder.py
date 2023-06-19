@@ -45,17 +45,6 @@ def _stable_guid_from_dict(d: dict) -> str:
     return str(md5_hash.hexdigest())
 
 
-def _stable_guid_from_dict(d: dict) -> str:
-    json_key = json.dumps(
-        d,
-        separators=(",", ":"),
-        sort_keys=True,
-        cls=DatahubKeyJSONEncoder,
-    )
-    md5_hash = hashlib.md5(json_key.encode("utf-8"))
-    return str(md5_hash.hexdigest())
-
-
 class DatahubKey(BaseModel):
     def guid_dict(self) -> Dict[str, str]:
         return self.dict(by_alias=True, exclude_none=True)
