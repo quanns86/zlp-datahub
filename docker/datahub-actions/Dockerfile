@@ -20,6 +20,7 @@ RUN (for attempt in 1 2 3 4 5; do ./gradlew --version && break ; echo "Failed to
     ./gradlew :metadata-events:mxe-schemas:build
 
 FROM base as prod-codegen
+USER root
 COPY --from=prod-build /datahub-src /datahub-src
 RUN cd /datahub-src/metadata-ingestion && \
     pip install -e ".[base]" && \
@@ -27,6 +28,7 @@ RUN cd /datahub-src/metadata-ingestion && \
 
 # Build actions
 FROM base as prod-install
+USER root
 COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-codegen /root/.cache/pip /root/.cache/pip
 ARG RELEASE_VERSION
