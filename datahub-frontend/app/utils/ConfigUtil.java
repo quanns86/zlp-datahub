@@ -1,6 +1,7 @@
 package utils;
 
 import java.util.Arrays;
+import java.util.List;
 
 import com.linkedin.util.Configuration;
 import com.typesafe.config.Config;
@@ -41,8 +42,9 @@ public class ConfigUtil {
       .getEnvironmentVariable(GMS_SSL_PROTOCOL_VAR);
 
   // Allowed users
-  public static final List<String> DEFAULT_GMS_ALLOWED_USERS = getList(getConfiguration.getEnvironmentVariable(GMS_ALLOWED_USERS,
-      "datahub"));
+  public static final List<String> DEFAULT_GMS_ALLOWED_USERS = getList(
+      Configuration.getEnvironmentVariable(GMS_ALLOWED_USERS,
+          "datahub"));
 
   public static boolean getBoolean(Config config, String key) {
     return config.hasPath(key) && config.getBoolean(key);

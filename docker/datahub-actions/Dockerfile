@@ -28,9 +28,11 @@ RUN cd /datahub-src/metadata-ingestion && \
 
 # Build actions
 FROM base as prod-install
-USER datahub
 COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-codegen /root/.cache/pip /root/.cache/pip
+USER root
+RUN chmod -R 777 /datahub-ingestion
+USER datahub
 ARG RELEASE_VERSION
 RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64.sh > $HOME/miniconda.sh && \
     bash $HOME/miniconda.sh -b  && \
