@@ -28,7 +28,7 @@ RUN cd /datahub-src/metadata-ingestion && \
 
 # Build actions
 FROM base as prod-install
-USER root
+USER datahub
 COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-codegen /root/.cache/pip /root/.cache/pip
 ARG RELEASE_VERSION
