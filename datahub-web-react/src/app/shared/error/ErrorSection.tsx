@@ -1,7 +1,7 @@
 import { Image, Typography } from 'antd';
 import React from 'react';
 import styled, { useTheme } from 'styled-components';
-import dataHubLogo from '../../../images/datahublogo.png';
+import dataHubLogo from '../../../images/zalopaylogo.png';
 import { ANTD_GRAY } from '../../entity/shared/constants';
 
 const Section = styled.div`
