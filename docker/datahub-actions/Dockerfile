@@ -32,7 +32,11 @@ USER root
 COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-codegen /root/.cache/pip /root/.cache/pip
 ARG RELEASE_VERSION
-RUN cd /datahub-ingestion && \
+RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64.sh > $HOME/miniconda.sh && \
+    bash $HOME/miniconda.sh -b  && \
+    eval "$($HOME/miniconda3/bin/conda shell.bash hook)" && \
+    conda init && \
+    cd /datahub-ingestion && \
     sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
     cat src/datahub/__init__.py && \
     pip install ".[all]" && \
@@ -41,6 +45,7 @@ RUN cd /datahub-ingestion && \
     rm -f /usr/local/lib/python3.10/site-packages/pyspark/jars/htrace-core4-4.1.0-incubating.jar
 
 FROM ${APP_ENV}-install as final
+COPY --from=prod-codegen /datahub-src/datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
 RUN addgroup --system datahub && adduser --system datahub --ingroup datahub
 USER datahub
 RUN curl -s "https://get.sdkman.io" | bash
