@@ -11,8 +11,6 @@ import utils.ConfigUtil;
 import utils.OkHttpRequester;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
 
 public class VngAuthenticationClient {
     private final OkHttpRequester okHttpRequester = new OkHttpRequester();

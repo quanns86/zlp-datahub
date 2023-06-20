@@ -47,6 +47,7 @@ RUN curl https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Linux-x86_64
     rm -f /usr/local/lib/python3.10/site-packages/pyspark/jars/htrace-core4-4.1.0-incubating.jar
 
 FROM ${APP_ENV}-install as final
+USER root
 COPY --from=prod-codegen /datahub-src/datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
 RUN addgroup --system datahub && adduser --system datahub --ingroup datahub
 USER datahub

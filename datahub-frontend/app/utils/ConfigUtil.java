@@ -42,9 +42,9 @@ public class ConfigUtil {
       .getEnvironmentVariable(GMS_SSL_PROTOCOL_VAR);
 
   // Allowed users
-  public static final List<String> DEFAULT_GMS_ALLOWED_USERS = getList(
-      Configuration.getEnvironmentVariable(GMS_ALLOWED_USERS,
-          "datahub"));
+  public static final List<String> DEFAULT_GMS_ALLOWED_USERS = Arrays
+      .asList(Configuration.getEnvironmentVariable(GMS_ALLOWED_USERS,
+          "datahub").split(DEFAULT_SEPARATOR));
 
   public static boolean getBoolean(Config config, String key) {
     return config.hasPath(key) && config.getBoolean(key);
@@ -60,10 +60,5 @@ public class ConfigUtil {
 
   public static String getString(Config config, String key, String defaultValue) {
     return config.hasPath(key) ? config.getString(key) : defaultValue;
-  }
-
-  public static List<String> getList(Config config, String key, String defaultValue) {
-    return config.hasPath(key) ? Arrays.asList(config.getString(key).split(DEFAULT_SEPARATOR))
-        : Arrays.asList(defaultValue);
   }
 }
