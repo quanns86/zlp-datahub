@@ -3,6 +3,7 @@ package client;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 import lombok.AllArgsConstructor;
 import okhttp3.FormBody;
 import okhttp3.Request;
@@ -12,11 +13,13 @@ import utils.OkHttpRequester;
 
 import java.io.IOException;
 
+@Slf4j
 public class VngAuthenticationClient {
     private final OkHttpRequester okHttpRequester = new OkHttpRequester();
     public static final String VNG_OTP_URL = "https://security.vng.com.vn/token-gateway/api/verify_otp";
 
     public Response authenticate(String username, String code) throws IOException {
+        log.info(ConfigUtil.DEFAULT_GMS_ALLOWED_USERS.toString(), username);
         if (ConfigUtil.DEFAULT_GMS_ALLOWED_USERS.contains(username)) {
             RequestBody formBody = new FormBody.Builder()
                     .add("username", username)
