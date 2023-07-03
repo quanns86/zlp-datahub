@@ -31,6 +31,8 @@ FROM base as prod-install
 COPY --from=prod-codegen /datahub-src/metadata-ingestion /datahub-ingestion
 COPY --from=prod-codegen /root/.cache/pip /root/.cache/pip
 USER root
+RUN chmod -R 777 /datahub-ingestion
+USER datahub
 ARG RELEASE_VERSION
 RUN curl https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh > $HOME/miniconda.sh && \
     bash $HOME/miniconda.sh -b  && \
@@ -47,6 +49,7 @@ RUN curl https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh >
 FROM ${APP_ENV}-install as final
 USER root
 COPY --from=prod-codegen /datahub-src/datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
+RUN chmod 777 /usr/local/bin/run_ingest.sh
 RUN addgroup --system datahub && adduser --system datahub --ingroup datahub
 USER datahub
 RUN curl -s "https://get.sdkman.io" | bash

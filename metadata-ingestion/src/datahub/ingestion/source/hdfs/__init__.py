@@ -6,10 +6,19 @@ import re
 import socket
 from datetime import datetime
 from enum import Enum
-from typing import Any, Iterable, List, Optional, Type, Union, cast
+from typing import (
+    Any,
+    Iterable,
+    List,
+    Optional,
+    Type,
+    Union,
+    cast,
+)
 
 from pyspark.conf import SparkConf
 from pyspark.sql import SparkSession
+from pyspark.sql import types as spark_types
 from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.types import (
     ArrayType,
@@ -30,7 +39,8 @@ from pyspark.sql.types import (
     StructType,
     TimestampType,
 )
-from pyspark.sql import types as spark_types
+from sqlalchemy import create_engine, dialects, inspect
+from sqlalchemy.sql import sqltypes as types
 
 from datahub.emitter.mce_builder import (
     make_data_platform_urn,
@@ -43,18 +53,22 @@ from datahub.emitter.mcp_builder import (
     PlatformKey,
     SchemaKey,
     add_dataset_to_container,
-    add_domain_to_entity_wu,
     gen_containers,
 )
 from datahub.ingestion.api.common import PipelineContext
+from datahub.ingestion.api.decorators import (
+    SourceCapability,
+    SupportStatus,
+    capability,
+    config_class,
+    platform_name,
+    support_status,
+)
 from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
+from datahub.ingestion.extractor import schema_util
 from datahub.ingestion.source.hdfs.config import HDFSSourceConfig
 from datahub.ingestion.source.hdfs.report import HDFSSourceReport
-from datahub.ingestion.source.state.checkpoint import Checkpoint
-from datahub.ingestion.source.state.sql_common_state import (
-    BaseSQLAlchemyCheckpointState,
-)
 from datahub.ingestion.source.state.stateful_ingestion_base import (
     JobId,
     StatefulIngestionSourceBase,
@@ -66,6 +80,7 @@ from datahub.metadata.com.linkedin.pegasus2avro.schema import (
     BooleanTypeClass,
     BytesTypeClass,
     DateTypeClass,
+    MapTypeClass,
     NullTypeClass,
     NumberTypeClass,
     RecordTypeClass,
@@ -79,41 +94,11 @@ from datahub.metadata.schema_classes import (
     ChangeTypeClass,
     DatasetPropertiesClass,
     DomainsClass,
+    JobStatusClass,
     MapTypeClass,
     OtherSchemaClass,
-    JobStatusClass
 )
-from datahub.metadata.com.linkedin.pegasus2avro.schema import (
-    BooleanTypeClass,
-    BytesTypeClass,
-    DateTypeClass,
-    NullTypeClass,
-    NumberTypeClass,
-    RecordTypeClass,
-    SchemaField,
-    SchemaFieldDataType,
-    SchemaMetadata,
-    StringTypeClass,
-    TimeTypeClass,
-    MapTypeClass
-)
-
-from sqlalchemy.sql import sqltypes as types
-from sqlalchemy import create_engine, dialects, inspect
-from typing import (
-    Any,
-    Iterable,
-    List,
-    Optional,
-    Type,
-    Union,
-    cast,
-)
-
 from datahub.utilities.hive_schema_to_avro import get_avro_schema_for_hive_column
-import re
-
-from datahub.ingestion.extractor import schema_util
 
 # hide annoying debug errors from py4j
 logging.getLogger("py4j").setLevel(logging.ERROR)
@@ -346,6 +331,15 @@ class HDFSContainerSubTypes(str, Enum):
     SCHEMA = "Schema"
 
 
+@platform_name("HDFS", id="hdfs")
+@config_class(HDFSSourceConfig)
+@support_status(SupportStatus.CERTIFIED)
+@capability(SourceCapability.DATA_PROFILING, "Optionally enabled via configuration")
+@capability(
+    SourceCapability.DELETION_DETECTION,
+    "Optionally enabled via `stateful_ingestion.remove_stale_metadata`",
+    supported=True,
+)
 class HDFSSource(StatefulIngestionSourceBase):
     source_config: HDFSSourceConfig
     hdfs_report = HDFSSourceReport()
@@ -399,17 +393,6 @@ class HDFSSource(StatefulIngestionSourceBase):
         Subclasses can override as needed.
         """
         return JobId("common_ingest_from_sql_source")
-
-    def is_checkpointing_enabled(self, job_id: JobId) -> bool:
-        if (
-            job_id == self.get_default_ingestion_job_id()
-            and self.is_stateful_ingestion_configured()
-            and self.source_config.stateful_ingestion
-            and self.source_config.stateful_ingestion.remove_stale_metadata
-        ):
-            return True
-
-        return False
 
     def gen_database_key(self) -> PlatformKey:
         return DatabaseKey(
@@ -618,17 +601,6 @@ class HDFSSource(StatefulIngestionSourceBase):
             entity_type="dataset"
         )
 
-        # Add dataset-urn to current checkpoint
-        if self.is_stateful_ingestion_configured():
-            cur_checkpoint = self.get_current_checkpoint(
-                self.get_default_ingestion_job_id()
-            )
-            if cur_checkpoint is not None:
-                checkpoint_state = cast(
-                    BaseSQLAlchemyCheckpointState, cur_checkpoint.state
-                )
-                checkpoint_state.add_table_urn(dataset_urn)
-
     def ingest_table(
         self, schema, files_to_infer: List[str], **kwargs
     ) -> Iterable[MetadataWorkUnit]:
@@ -758,80 +730,6 @@ class HDFSSource(StatefulIngestionSourceBase):
         database = config_dict.get("database", "no_database")
         return f"{self.platform}_{host_port}_{database}"
 
-    def create_checkpoint(self, job_id: JobId) -> Optional[Checkpoint]:
-        """
-        Create the custom checkpoint with empty state for the job.
-        """
-        assert self.ctx.pipeline_name is not None
-        if job_id == self.get_default_ingestion_job_id():
-            return Checkpoint(
-                job_name=job_id,
-                pipeline_name=self.ctx.pipeline_name,
-                platform_instance_id=self.get_platform_instance_id(),
-                run_id=self.ctx.run_id,
-                config=self.source_config,
-                state=BaseSQLAlchemyCheckpointState(),
-            )
-        return None
-
-    def gen_removed_entity_workunits(self) -> Iterable[MetadataWorkUnit]:
-        last_checkpoint = self.get_last_checkpoint(
-            self.get_default_ingestion_job_id(), BaseSQLAlchemyCheckpointState
-        )
-        cur_checkpoint = self.get_current_checkpoint(
-            self.get_default_ingestion_job_id()
-        )
-        if (
-            self.source_config.stateful_ingestion
-            and self.source_config.stateful_ingestion.remove_stale_metadata
-            and last_checkpoint is not None
-            and last_checkpoint.state is not None
-            and cur_checkpoint is not None
-            and cur_checkpoint.state is not None
-        ):
-            logger.debug("Checking for stale entity removal.")
-
-            def soft_delete_item(urn: str, type: str) -> Iterable[MetadataWorkUnit]:
-                entity_type: str = "dataset"
-
-                if type == "container":
-                    entity_type = "container"
-
-                logger.info(f"Soft-deleting stale entity of type {type} - {urn}.")
-                mcp = MetadataChangeProposalWrapper(
-                    entityType=entity_type,
-                    entityUrn=urn,
-                    changeType=ChangeTypeClass.UPSERT,
-                    aspectName="status",
-                    aspect=StatusClass(removed=True),
-                )
-                wu = MetadataWorkUnit(id=f"soft-delete-{type}-{urn}", mcp=mcp)
-                self.hdfs_report.report_workunit(wu)
-                self.hdfs_report.report_stale_entity_soft_deleted(urn)
-                yield wu
-
-            last_checkpoint_state = cast(
-                BaseSQLAlchemyCheckpointState, last_checkpoint.state
-            )
-            cur_checkpoint_state = cast(
-                BaseSQLAlchemyCheckpointState, cur_checkpoint.state
-            )
-
-            for table_urn in last_checkpoint_state.get_table_urns_not_in(
-                cur_checkpoint_state
-            ):
-                yield from soft_delete_item(table_urn, "table")
-
-            for view_urn in last_checkpoint_state.get_view_urns_not_in(
-                cur_checkpoint_state
-            ):
-                yield from soft_delete_item(view_urn, "view")
-
-            for container_urn in last_checkpoint_state.get_container_urns_not_in(
-                cur_checkpoint_state
-            ):
-                yield from soft_delete_item(container_urn, "container")
-
     def get_workunits(self) -> Iterable[MetadataWorkUnit]:
         tracked_schema = []
         yield from self.gen_database_containers()
@@ -876,13 +774,9 @@ class HDFSSource(StatefulIngestionSourceBase):
                     self.hdfs_report.report_failure("hdfs-ingestion", f"{directory}, {str(e)[:100]}")
             else:
                 self.hdfs_report.report_file_dropped(directory)
-        if self.is_stateful_ingestion_configured():
-            # Clean up stale entities.
-            yield from self.gen_removed_entity_workunits()
 
     def get_report(self):
         return self.hdfs_report
 
     def close(self):
         self.spark.stop()
-        self.prepare_for_commit()

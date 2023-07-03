@@ -2,9 +2,9 @@
 import pymysql  # noqa: F401
 
 from datahub.ingestion.source.sql.sql_common import (
-    BasicSQLAlchemyConfig,
     SQLAlchemySource,
 )
+from datahub.ingestion.source.sql.sql_config import BasicSQLAlchemyConfig
 
 
 class TiDBConfig(BasicSQLAlchemyConfig):
@@ -20,7 +20,7 @@ class TiDBSource(SQLAlchemySource):
     def get_platform(self):
         return "tidb"
 
-    @ classmethod
+    @classmethod
     def create(cls, config_dict, ctx):
         config = TiDBConfig.parse_obj(config_dict)
         return cls(config, ctx)
