@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import * as QueryString from 'query-string';
 import { Input, Button, Form, message, Image, Divider } from 'antd';
 import { UserOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
@@ -74,6 +74,13 @@ export const LogIn: React.VFC<LogInProps> = () => {
 
     const { refreshContext } = useAppConfig();
 
+    const failMessage = useMemo(() => (
+        <div>
+            Failed to log in! An unexpected error occurred. Please input to this sheet if you want to access Datahub
+            <a href="https://confluence.zalopay.vn/display/RISK/RPD+%7C+DMC+%7C+Datahub+Access+Request">Datahub Sheet</a>
+        </div>
+    ), [])
+
     const handleLogin = useCallback(
         (values: FormValues) => {
             setLoading(true);
@@ -95,11 +102,11 @@ export const LogIn: React.VFC<LogInProps> = () => {
                     return Promise.resolve();
                 })
                 .catch((_) => {
-                    message.error(`Failed to log in! An unexpected error occurred.`);
+                    message.error(failMessage);
                 })
                 .finally(() => setLoading(false));
         },
-        [refreshContext],
+        [refreshContext, failMessage],
     );
 
     if (isLoggedIn) {
