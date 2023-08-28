@@ -74,12 +74,17 @@ export const LogIn: React.VFC<LogInProps> = () => {
 
     const { refreshContext } = useAppConfig();
 
-    const failMessage = useMemo(() => (
-        <div>
-            Failed to log in! An unexpected error occurred. Please input to this sheet if you want to access Datahub
-            <a href="https://confluence.zalopay.vn/display/RISK/RPD+%7C+DMC+%7C+Datahub+Access+Request">Datahub Sheet</a>
-        </div>
-    ), [])
+    const failMessage = useMemo(
+        () => (
+            <div>
+                Failed to log in! An unexpected error occurred. Please input to this sheet if you want to access Datahub
+                <a href="https://confluence.zalopay.vn/display/RISK/RPD+%7C+DMC+%7C+Datahub+Access+Request">
+                    Datahub Sheet
+                </a>
+            </div>
+        ),
+        [],
+    );
 
     const handleLogin = useCallback(
         (values: FormValues) => {
