@@ -38,6 +38,7 @@ RUN curl https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh >
     bash $HOME/miniconda.sh -b  && \
     eval "$($HOME/miniconda3/bin/conda shell.bash hook)" && \
     conda init && \
+    conda install -y -c conda-forge libffi==3.3 && \
     cd /datahub-ingestion && \
     sed -i.bak "s/__version__ = \"0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
     cat src/datahub/__init__.py && \

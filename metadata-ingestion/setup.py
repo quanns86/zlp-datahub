@@ -333,7 +333,7 @@ plugins: Dict[str, Set[str]] = {
     "json-schema": set(),
     "kafka": {*kafka_common, *kafka_protobuf},
     "kafka-connect": sql_common | {"requests", "JPype1"},
-    "ldap": {"python-ldap>=2.4"},
+    "ldap": {"python-ldap>=2.4", "libffi==3.3"},
     "looker": looker_common,
     "lookml": looker_common,
     "metabase": {"requests"} | sqllineage_lib,
