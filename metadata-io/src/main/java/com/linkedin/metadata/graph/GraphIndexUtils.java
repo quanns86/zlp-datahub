@@ -18,7 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class GraphIndexUtils {
 
-  private GraphIndexUtils() { }
+  private GraphIndexUtils() {
+  }
 
   @Nullable
   private static List<Urn> getActorList(@Nullable final String path, @Nonnull final RecordTemplate aspect) {
@@ -41,7 +42,8 @@ public class GraphIndexUtils {
   }
 
   @Nullable
-  private static List<Map<String, Object>> getPropertiesList(@Nullable final String path, @Nonnull final RecordTemplate aspect) {
+  private static List<Map<String, Object>> getPropertiesList(@Nullable final String path,
+      @Nonnull final RecordTemplate aspect) {
     if (path == null) {
       return null;
     }
@@ -49,8 +51,6 @@ public class GraphIndexUtils {
     final Object value = RecordUtils.getNullableFieldValue(aspect, propertiesPathSpec);
     return (List<Map<String, Object>>) value;
   }
-
-
 
   @Nullable
   private static boolean isValueListValid(@Nullable final List<?> entryList, final int valueListSize) {
@@ -80,7 +80,8 @@ public class GraphIndexUtils {
   }
 
   @Nullable
-  private static Map<String, Object> getProperties(@Nullable final List<Map<String, Object>> propertiesList, final int index, final int valueListSize) {
+  private static Map<String, Object> getProperties(@Nullable final List<Map<String, Object>> propertiesList,
+      final int index, final int valueListSize) {
     if (isValueListValid(propertiesList, valueListSize)) {
       return propertiesList.get(index);
     }
@@ -88,7 +89,8 @@ public class GraphIndexUtils {
   }
 
   /**
-   * Used to create new edges for the graph db, adding all the metadata associated with each edge based on the aspect.
+   * Used to create new edges for the graph db, adding all the metadata associated
+   * with each edge based on the aspect.
    * Returns a list of Edges to be consumed by the graph service.
    */
   @Nonnull
@@ -97,8 +99,7 @@ public class GraphIndexUtils {
       @Nonnull final RecordTemplate aspect,
       @Nonnull final Urn urn,
       @Nonnull final MetadataChangeLog event,
-      @Nonnull final boolean isNewAspectVersion
-  ) {
+      @Nonnull final boolean isNewAspectVersion) {
     final List<Edge> edgesToAdd = new ArrayList<>();
     final String createdOnPath = extractedFieldsEntry.getKey().getRelationshipAnnotation().getCreatedOn();
     final String createdActorPath = extractedFieldsEntry.getKey().getRelationshipAnnotation().getCreatedActor();
@@ -160,9 +161,7 @@ public class GraphIndexUtils {
                 createdActor,
                 updatedOn,
                 updatedActor,
-                properties
-            )
-        );
+                properties));
       } catch (URISyntaxException e) {
         log.error("Invalid destination urn: {}", fieldValue, e);
       }
@@ -173,7 +172,8 @@ public class GraphIndexUtils {
 
   @Nonnull
   public static Edge mergeEdges(@Nonnull final Edge oldEdge, @Nonnull final Edge newEdge) {
-    // Set createdOn and createdActor to null, so they don't get overwritten in the Graph Index.
+    // Set createdOn and createdActor to null, so they don't get overwritten in the
+    // Graph Index.
     // A merged edge is really just an edge that's getting updated.
     return new Edge(
         oldEdge.getSource(),
@@ -183,7 +183,6 @@ public class GraphIndexUtils {
         null,
         newEdge.getUpdatedOn(),
         newEdge.getUpdatedActor(),
-        newEdge.getProperties()
-    );
+        newEdge.getProperties());
   }
 }

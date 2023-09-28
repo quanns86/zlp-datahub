@@ -27,8 +27,6 @@ base_requirements = {
     "pydantic>=1.5.1,!=1.10.3,<2",
     "mixpanel>=4.9.0",
     "sentry-sdk",
-
-
 }
 
 framework_common = {
