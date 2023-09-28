@@ -1,53 +1,25 @@
 import itertools
-import json
 import logging
 import os
-import re
 import socket
 from datetime import datetime
 from enum import Enum
 from typing import (
-    Any,
     Iterable,
     List,
     Optional,
-    Type,
     Union,
-    cast,
 )
 
 from pyspark.conf import SparkConf
 from pyspark.sql import SparkSession
-from pyspark.sql import types as spark_types
 from pyspark.sql.dataframe import DataFrame
-from pyspark.sql.types import (
-    ArrayType,
-    BinaryType,
-    BooleanType,
-    ByteType,
-    DateType,
-    DecimalType,
-    DoubleType,
-    FloatType,
-    IntegerType,
-    LongType,
-    MapType,
-    NullType,
-    ShortType,
-    StringType,
-    StructField,
-    StructType,
-    TimestampType,
-)
-from sqlalchemy import create_engine, dialects, inspect
-from sqlalchemy.sql import sqltypes as types
 
 from datahub.emitter.mce_builder import (
     make_data_platform_urn,
     make_dataset_urn,
     make_domain_urn,
 )
-from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.emitter.mcp_builder import (
     DatabaseKey,
     PlatformKey,
@@ -64,266 +36,35 @@ from datahub.ingestion.api.decorators import (
     platform_name,
     support_status,
 )
-from datahub.ingestion.api.source import Source, SourceReport
 from datahub.ingestion.api.workunit import MetadataWorkUnit
-from datahub.ingestion.extractor import schema_util
 from datahub.ingestion.source.hdfs.config import HDFSSourceConfig
 from datahub.ingestion.source.hdfs.report import HDFSSourceReport
+from datahub.ingestion.source.hdfs.utils import (
+    add_domain_to_entity_wu,
+    check_complex,
+    generate_properties,
+    get_schema_fields_for_column,
+    infer_partition,
+    is_invalid_path,
+    parse_config,
+)
 from datahub.ingestion.source.state.stateful_ingestion_base import (
     JobId,
     StatefulIngestionSourceBase,
 )
-from datahub.metadata.com.linkedin.pegasus2avro.common import StatusClass
 from datahub.metadata.com.linkedin.pegasus2avro.metadata.snapshot import DatasetSnapshot
 from datahub.metadata.com.linkedin.pegasus2avro.mxe import MetadataChangeEvent
 from datahub.metadata.com.linkedin.pegasus2avro.schema import (
-    BooleanTypeClass,
-    BytesTypeClass,
-    DateTypeClass,
-    MapTypeClass,
-    NullTypeClass,
-    NumberTypeClass,
-    RecordTypeClass,
-    SchemaField,
-    SchemaFieldDataType,
     SchemaMetadata,
-    StringTypeClass,
-    TimeTypeClass,
 )
 from datahub.metadata.schema_classes import (
-    ChangeTypeClass,
     DatasetPropertiesClass,
-    DomainsClass,
-    JobStatusClass,
-    MapTypeClass,
     OtherSchemaClass,
 )
-from datahub.utilities.hive_schema_to_avro import get_avro_schema_for_hive_column
 
 # hide annoying debug errors from py4j
 logging.getLogger("py4j").setLevel(logging.ERROR)
 logger: logging.Logger = logging.getLogger(__name__)
-
-# for a list of all types, see https://spark.apache.org/docs/3.0.3/api/python/_modules/pyspark/sql/types.html
-_field_type_mapping = {
-    NullType: NullTypeClass,
-    StringType: StringTypeClass,
-    BinaryType: BytesTypeClass,
-    BooleanType: BooleanTypeClass,
-    DateType: DateTypeClass,
-    TimestampType: TimeTypeClass,
-    DecimalType: NumberTypeClass,
-    DoubleType: NumberTypeClass,
-    FloatType: NumberTypeClass,
-    ByteType: BytesTypeClass,
-    IntegerType: NumberTypeClass,
-    LongType: NumberTypeClass,
-    ShortType: NumberTypeClass,
-    ArrayType: NullTypeClass,
-    MapType: MapTypeClass,
-    StructField: RecordTypeClass,
-    StructType: RecordTypeClass,
-}
-
-_spark_str_to_spark_type = {**spark_types._all_atomic_types, **spark_types._all_complex_types}
-
-
-def get_column_type(
-    report: SourceReport, dataset_name: str, column_type: str
-) -> SchemaFieldDataType:
-    """
-    Maps known Spark types to datahub types
-    """
-    TypeClass: Any = None
-
-    for field_type, type_class in _field_type_mapping.items():
-        if _spark_str_to_spark_type.get(column_type) == field_type:
-            TypeClass = type_class
-            break
-
-    # if still not found, report the warning
-    if TypeClass is None:
-
-        report.report_warning(
-            dataset_name, f"unable to map type {column_type} to metadata schema"
-        )
-        TypeClass = NullTypeClass
-
-    return SchemaFieldDataType(type=TypeClass())
-
-
-def parse_config(env):
-    try:
-        file = open(f"/spark-configuration/spark-defaults-{env}.conf")
-        conf = {}
-
-        while True:
-            line = file.readline()
-            if not line:
-                break
-            if line.startswith("spark"):
-                key, value = [item for item in line.split(" ") if item != ""]
-                conf[key] = value.replace("\n", "")
-        return conf
-    except Exception as e:
-        raise ValueError(f"File path not found for env {env}, {e}")
-
-
-def infer_partition(path: str) -> str:
-    """Generify hdfs path by predefined formats
-
-    Args:
-        path (str): path to infer
-
-    Returns:
-        str: partition_by path
-    """
-    # Case when date string matches both %Y%m & %y%m%d
-    # 220401 -> %Y%m -> Year: 2204, month: 01
-    # 220401 -> %y%m%d -> Year: 2022, month: 04, day: 01
-    # Case when date string matches one and wrong on the other
-    # 202201 -> %Y%m -> Year: 2022, month: 01
-    # 202201 -> %y%m%d -> Exception, there's no 22nd month
-    # -> %Y%m has higher chance of matching date -> lower priority
-    fmts = (
-        "%Y",
-        "%m",
-        "%d",
-        "%y%m%d",
-        "%Y%m",
-        "%Y%m%d",
-        "%m%d",
-        "%Y%d",
-        "%Y-%m-%d",
-        "%Y-%m",
-    )
-    tracked_fmt = []
-    output = []
-    for item in path.split("/"):
-        for fmt in fmts:
-            try:
-                extracted_date_str = re.sub(r"[a-zA-Z=_]", "", item)
-                if extracted_date_str:
-                    dt = datetime.strptime(extracted_date_str, fmt)
-                    fuzzy_tokens = item.replace(extracted_date_str, "")
-                    pattern = fuzzy_tokens + fmt
-                    pattern_parsed = dt.strftime(pattern)
-                    if fmt not in tracked_fmt and pattern_parsed == item:
-                        output.append(pattern)
-                        tracked_fmt.append(fmt)
-                        break
-            except Exception:
-                pass
-    return "/".join(output)
-
-
-def is_invalid_path(path: str) -> bool:
-    """Check path contain specific keyword
-    Args:
-        path (str): path to check
-
-    Returns:
-        bool: whether path is invalid
-    """
-    kws = ["__HIVE_DEFAULT_PARTITION__", "_SUCCESS"]
-    return any([kw in path for kw in kws])
-
-
-def generate_properties(partition_by: Optional[str], directory: str):
-    properties = {}
-    if partition_by:
-        properties = {
-            "location": directory,
-            "is_partition": "True",
-            "partition_by": partition_by,
-            "is_time_range_required": "True",
-            "is_metadata_embedded": "True",
-        }
-    else:
-        properties = {
-            "location": directory,
-            "is_partition": "False",
-            "is_time_range_required": "False",
-            "is_metadata_embedded": "True",
-        }
-    return properties
-
-
-def add_domain_to_entity_wu(
-    entity_type: str, entity_urn: str, domain_urn: str
-) -> Iterable[MetadataWorkUnit]:
-    mcp = MetadataChangeProposalWrapper(
-        entityType=entity_type,
-        changeType=ChangeTypeClass.UPSERT,
-        entityUrn=f"{entity_urn}",
-        aspectName="domains",
-        aspect=DomainsClass(domains=[domain_urn]),
-    )
-    wu = MetadataWorkUnit(id=f"{domain_urn}-to-{entity_urn}", mcp=mcp)
-    yield wu
-
-
-_COMPLEX_TYPE = re.compile("^(struct|map|array|uniontype)")
-
-
-def get_column_type(
-    column_type: Any
-) -> SchemaFieldDataType:
-    """
-    Maps SQLAlchemy types (https://docs.sqlalchemy.org/en/13/core/type_basics.html) to corresponding schema types
-    """
-    TypeClass: Optional[Type] = None
-    for sql_type in _field_type_mapping.keys():
-        if column_type in _spark_str_to_spark_type and _spark_str_to_spark_type[column_type] == sql_type:
-            TypeClass = _field_type_mapping[sql_type]
-            break
-
-    if TypeClass is None:
-        # sql_report.report_warning(
-        #     dataset_name, f"unable to map type {column_type!r} to metadata schema"
-        # )
-        TypeClass = NullTypeClass
-
-    return SchemaFieldDataType(type=TypeClass())
-
-
-def get_schema_fields_for_column(
-    column: dict
-) -> List[SchemaField]:
-    field = SchemaField(
-        fieldPath=column["name"],
-        type=get_column_type(column["type"]),
-        nativeDataType=column.get("full_type", column["type"]),
-        description=column.get("comment", None),
-        nullable=column["nullable"],
-        recursive=False,
-    )
-    return [field]
-
-
-def check_complex(fields: List[SchemaField]):
-    if _COMPLEX_TYPE.match(fields[0].nativeDataType) and isinstance(
-        fields[0].type.type, NullTypeClass
-    ):
-        assert len(fields) == 1
-
-        field = fields[0]
-        # Get avro schema for subfields along with parent complex field
-        avro_schema = get_avro_schema_for_hive_column(
-            field.fieldPath, field.nativeDataType
-        )
-
-        new_fields = schema_util.avro_schema_to_mce_fields(
-            json.dumps(avro_schema), default_nullable=True
-        )
-
-        # First field is the parent complex field
-        new_fields[0].nullable = field.nullable
-        new_fields[0].description = field.description
-        new_fields[0].isPartOfKey = field.isPartOfKey
-        return new_fields
-
-    return fields
 
 
 class HDFSContainerSubTypes(str, Enum):
@@ -434,9 +175,7 @@ class HDFSSource(StatefulIngestionSourceBase):
 
         return domain_urn
 
-    def gen_schema_containers(
-        self, schema: str
-    ) -> Iterable[MetadataWorkUnit]:
+    def gen_schema_containers(self, schema: str) -> Iterable[MetadataWorkUnit]:
         db_name = self.source_config.database
         schema_container_key = self.gen_schema_key(schema)
 
@@ -482,7 +221,6 @@ class HDFSSource(StatefulIngestionSourceBase):
         entity_urn: str,
         entity_type: str,
     ) -> Iterable[MetadataWorkUnit]:
-
         domain_urn = self._gen_domain_urn(dataset_name)
         if domain_urn:
             wus = add_domain_to_entity_wu(
@@ -495,7 +233,6 @@ class HDFSSource(StatefulIngestionSourceBase):
                 yield wu
 
     def read_file(self, files_to_infer: List[str]) -> Optional[DataFrame]:
-
         extension = self.source_config.format
 
         if extension == "parquet":
@@ -552,6 +289,7 @@ class HDFSSource(StatefulIngestionSourceBase):
         self, schema: str, dataframe: DataFrame, **kwargs
     ) -> Iterable[MetadataWorkUnit]:
         table_name = kwargs.get("table_name")
+        is_delta = kwargs.get("is_delta")
         dataset_urn = make_dataset_urn(
             self.platform, table_name, self.source_config.env
         )
@@ -574,12 +312,20 @@ class HDFSSource(StatefulIngestionSourceBase):
 
         dataset_snapshot.aspects.append(dataset_properties)
 
-        column_fields = [check_complex(get_schema_fields_for_column(col)) for col in [{"name": f_name, "type": f_type, "nullable": False} for f_name, f_type in dataframe.dtypes]]
+        column_fields = [
+            check_complex(get_schema_fields_for_column(col))
+            for col in [
+                {"name": f_name, "type": f_type, "nullable": False}
+                for f_name, f_type in dataframe.dtypes
+            ]
+        ]
         column_fields = list(itertools.chain(*column_fields))
+
+        platform = self.platform if not is_delta else "delta"
 
         schema_metadata = SchemaMetadata(
             schemaName=table_name,
-            platform=make_data_platform_urn(self.platform),
+            platform=make_data_platform_urn(platform),
             version=0,
             hash="",
             fields=column_fields,
@@ -593,18 +339,19 @@ class HDFSSource(StatefulIngestionSourceBase):
         self.hdfs_report.report_workunit(wu)
         yield wu
 
-        yield from self.add_table_to_schema_container(dataset_urn=dataset_urn, schema=schema)
+        yield from self.add_table_to_schema_container(
+            dataset_urn=dataset_urn, schema=schema
+        )
 
         yield from self._get_domain_wu(
-            dataset_name=table_name,
-            entity_urn=dataset_urn,
-            entity_type="dataset"
+            dataset_name=table_name, entity_urn=dataset_urn, entity_type="dataset"
         )
 
     def ingest_table(
         self, schema, files_to_infer: List[str], **kwargs
     ) -> Iterable[MetadataWorkUnit]:
         table_name = kwargs.get("table_name")
+        is_delta = kwargs.get("is_delta")
         table = self.read_file(files_to_infer)
 
         # if table is not readable, skip
@@ -616,7 +363,10 @@ class HDFSSource(StatefulIngestionSourceBase):
             f"Ingesting {table_name}: making table schemas {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
         )
         yield from self.get_table_schema(
-            schema=schema, dataframe=table, table_name=table_name, properties=kwargs.get("properties", {})
+            schema=schema,
+            dataframe=table,
+            table_name=table_name,
+            properties=kwargs.get("properties", {}),
         )
 
     def get_relative_path_from_hadoop_host(self, path: str) -> str:
@@ -635,7 +385,11 @@ class HDFSSource(StatefulIngestionSourceBase):
             file_path = str(subfiles.next().getPath())
             if not is_invalid_path(file_path):
                 file_name = file_path.rsplit("/", 1)[-1]
-                file_extension = file_path.rsplit("/", 1)[-1].rsplit(".", 1)[-1] if '.' in file_name else ''
+                file_extension = (
+                    file_path.rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+                    if "." in file_name
+                    else ""
+                )
                 if file_extension in self.source_config.extension:
                     if self.source_config.infer_latest:
                         # Check if going through latest partition
@@ -651,7 +405,9 @@ class HDFSSource(StatefulIngestionSourceBase):
                         break
         return files_to_infer
 
-    def _gen_directories_recursive(self, to_check_directory: Union[str, List[str]]) -> Optional[List[str]]:
+    def _gen_directories_recursive(
+        self, to_check_directory: Union[str, List[str]]
+    ) -> Optional[List[str]]:
         folder_to_track = []
         folder_paths = []
         files = self.fs.listLocatedStatus(self.Path(to_check_directory))
@@ -670,6 +426,13 @@ class HDFSSource(StatefulIngestionSourceBase):
                 file = files.next()
                 path = str(file.getPath())
                 path_rel = self.get_relative_path_from_hadoop_host(path)
+
+                if "_delta_log" in rel_path:
+                    for idx, path in enumerate(folder_paths):
+                        if "_delta_log" in path:
+                            folder_paths[idx] = {"path": rel_path, "is_delta": True}
+                    continue
+
                 # If nested folder doesn't belong to partition type folder and doesn't contain invalid keyword -> push to stack to check later
                 if (
                     file.isDirectory()
@@ -678,13 +441,14 @@ class HDFSSource(StatefulIngestionSourceBase):
                 ):
                     folder_to_track.append(path)
                     has_subdirectories = True
-            # If current checking folder doesn't have sub-directories that have partition or that folder only contains format file -> actual folder
+                # If current checking folder doesn't have sub-directories that have partition or that folder only contains format file -> actual folder
                 if (
                     not has_subdirectories
                     and not is_invalid_path(rel_path)
                     and rel_path not in folder_paths
                 ):
-                    folder_paths.append(rel_path)
+                    folder_paths.append({"path": rel_path, "is_delta": False})
+
         return folder_paths
 
     def get_directories_to_check(self) -> List[str]:
@@ -695,7 +459,9 @@ class HDFSSource(StatefulIngestionSourceBase):
                 accumulated_directory_paths.extend(self._gen_directories_recursive(dir))
         else:
             accumulated_directory_paths = raw_input.copy()
-        self.hdfs_report.report_warning("ready-to-be-ingested", accumulated_directory_paths)
+        self.hdfs_report.report_warning(
+            "ready-to-be-ingested", accumulated_directory_paths
+        )
         return accumulated_directory_paths
 
     def loop_partitions(self, directory):
@@ -714,9 +480,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             if not is_invalid_path(sub_folder_path_rel):
                 if not sub_folder_path_rel.startswith("/"):
                     sub_folder_path_rel = "/" + sub_folder_path_rel
-                subfiles = self.fs.listFiles(
-                    self.Path(sub_folder_path_rel), True
-                )
+                subfiles = self.fs.listFiles(self.Path(sub_folder_path_rel), True)
                 files_to_infer.extend(self.get_files_to_infer(subfolders, subfiles))
         return files_to_infer
 
@@ -736,15 +500,17 @@ class HDFSSource(StatefulIngestionSourceBase):
             parent_dir, filename = os.path.split(file)
             parent_dir_rel = self.get_relative_path_from_hadoop_host(parent_dir)
             partition_by = infer_partition(parent_dir_rel)
-            partition_format_count[partition_by] = partition_format_count.get(
-                partition_by, 0
-            ) + 1
+            partition_format_count[partition_by] = (
+                partition_format_count.get(partition_by, 0) + 1
+            )
         return sorted(partition_format_count, reverse=True)[0]
 
     def get_workunits(self) -> Iterable[MetadataWorkUnit]:
         tracked_schema = []
         yield from self.gen_database_containers()
-        for directory in self.get_directories_to_check():
+        for directory_ in self.get_directories_to_check():
+            directory = directory_.get("directory")
+            is_delta = directory_.get("is_delta")
             if self.source_config.schema_pattern.allowed(directory):
                 try:
                     files_to_infer = self.loop_partitions(directory)
@@ -754,32 +520,46 @@ class HDFSSource(StatefulIngestionSourceBase):
                             yield from self.gen_schema_containers(schema)
                             tracked_schema.append(schema)
                     except:
-                        self.hdfs_report.report_warning("schema-creation-failure", f"cannot create schema for directory {directory}")
+                        self.hdfs_report.report_warning(
+                            "schema-creation-failure",
+                            f"cannot create schema for directory {directory}",
+                        )
                     while True:
                         if len(files_to_infer) > 0:
                             if not self.source_config.merge_schema:
-                                files_to_infer = [files_to_infer[-1]] if self.source_config.infer_latest else [files_to_infer[0]]
+                                files_to_infer = (
+                                    [files_to_infer[-1]]
+                                    if self.source_config.infer_latest
+                                    else [files_to_infer[0]]
+                                )
                             partition_by = self.infer_partition_all(files_to_infer)
                             try:
                                 yield from self.ingest_table(
                                     schema=schema,
                                     files_to_infer=files_to_infer,
                                     table_name=self.generate_table_name(directory),
-                                    properties=generate_properties(partition_by, directory),
+                                    properties=generate_properties(
+                                        partition_by, directory
+                                    ),
+                                    is_delta=is_delta,
                                 )
                             except Exception as e:
                                 # Handle conflict schema merging
-                                if 'Failed merging schema' in str(e):
+                                if "Failed merging schema" in str(e):
                                     files_to_infer.pop(0)
                                     continue
-                                self.hdfs_report.report_failure("hdfs-ingestion", f"{directory}, {str(e)[:150]}")
+                                self.hdfs_report.report_failure(
+                                    "hdfs-ingestion", f"{directory}, {str(e)[:150]}"
+                                )
                         else:
                             self.hdfs_report.report_warning(
                                 "hdfs-ingestion", f"no files to ingest in {directory}"
                             )
                         break
                 except Exception as e:
-                    self.hdfs_report.report_failure("hdfs-ingestion", f"{directory}, {str(e)[:100]}")
+                    self.hdfs_report.report_failure(
+                        "hdfs-ingestion", f"{directory}, {str(e)[:100]}"
+                    )
             else:
                 self.hdfs_report.report_file_dropped(directory)
 
