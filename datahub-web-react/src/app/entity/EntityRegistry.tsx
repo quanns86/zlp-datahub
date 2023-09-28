@@ -1,5 +1,7 @@
+import React from 'react';
 import { Entity as EntityInterface, EntityType, SearchResult } from '../../types.generated';
 import { FetchedEntity } from '../lineage/types';
+import { SearchResultProvider } from '../search/context/SearchResultContext';
 import { Entity, EntityCapabilityType, IconStyleType, PreviewType } from './Entity';
 import { GLOSSARY_ENTITY_TYPES } from './shared/constants';
 import { GenericEntityProperties } from './shared/types';
@@ -35,8 +37,18 @@ export default class EntityRegistry {
         return validatedGet(type, this.entityTypeToEntity);
     }
 
+    hasEntity(type: EntityType): boolean {
+        return this.entityTypeToEntity.has(type);
+    }
+
     getEntities(): Array<Entity<any>> {
         return this.entities;
+    }
+
+    getEntitiesForSearchRoutes(): Array<Entity<any>> {
+        return this.entities.filter(
+            (entity) => !GLOSSARY_ENTITY_TYPES.includes(entity.type) && entity.type !== EntityType.Domain,
+        );
     }
 
     getNonGlossaryEntities(): Array<Entity<any>> {
@@ -115,7 +127,9 @@ export default class EntityRegistry {
 
     renderSearchResult(type: EntityType, searchResult: SearchResult): JSX.Element {
         const entity = validatedGet(type, this.entityTypeToEntity);
-        return entity.renderSearch(searchResult);
+        return (
+            <SearchResultProvider searchResult={searchResult}>{entity.renderSearch(searchResult)}</SearchResultProvider>
+        );
     }
 
     renderBrowse<T>(type: EntityType, data: T): JSX.Element {

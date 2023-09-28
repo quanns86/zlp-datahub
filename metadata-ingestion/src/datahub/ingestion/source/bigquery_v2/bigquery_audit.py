@@ -13,54 +13,14 @@ from datahub.utilities.parsing_util import (
     get_first_missing_key_any,
 )
 
-BQ_FILTER_RULE_TEMPLATE = "BQ_FILTER_RULE_TEMPLATE"
-
-BQ_AUDIT_V2 = {
-    BQ_FILTER_RULE_TEMPLATE: """
-resource.type=("bigquery_project" OR "bigquery_dataset")
-AND
-timestamp >= "{start_time}"
-AND
-timestamp < "{end_time}"
-AND protoPayload.serviceName="bigquery.googleapis.com"
-AND
-(
-    (
-        protoPayload.methodName=
-            (
-                "google.cloud.bigquery.v2.JobService.Query"
-                OR
-                "google.cloud.bigquery.v2.JobService.InsertJob"
-            )
-        AND protoPayload.metadata.jobChange.job.jobStatus.jobState="DONE"
-        AND NOT protoPayload.metadata.jobChange.job.jobStatus.errorResult:*
-        AND protoPayload.metadata.jobChange.job.jobConfig.queryConfig:*
-        AND
-        (
-            (
-                protoPayload.metadata.jobChange.job.jobStats.queryStats.referencedTables:*
-                AND NOT protoPayload.metadata.jobChange.job.jobStats.queryStats.referencedTables =~ "projects/.*/datasets/.*/tables/__TABLES__|__TABLES_SUMMARY__|INFORMATION_SCHEMA.*"
-            )
-            OR
-            (
-                protoPayload.metadata.jobChange.job.jobConfig.queryConfig.destinationTable:*
-            )
-        )
-    )
-    OR
-    protoPayload.metadata.tableDataRead.reason = "JOB"
-)
-""".strip(
-        "\t \n"
-    ),
-}
-
 AuditLogEntry = Any
 
 # BigQueryAuditMetadata is the v2 format in which audit logs are exported to BigQuery
 BigQueryAuditMetadata = Any
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+_BIGQUERY_DEFAULT_SHARDED_TABLE_REGEX = "((.+)[_$])?(\\d{8})$"
 
 
 @dataclass(frozen=True, order=True)
@@ -70,7 +30,12 @@ class BigqueryTableIdentifier:
     table: str
 
     invalid_chars: ClassVar[Set[str]] = {"$", "@"}
-    _BIGQUERY_DEFAULT_SHARDED_TABLE_REGEX: ClassVar[str] = "((.+)[_$])?(\\d{8})$"
+
+    # Note: this regex may get overwritten by the sharded_table_pattern config.
+    # The class-level constant, however, will not be overwritten.
+    _BIGQUERY_DEFAULT_SHARDED_TABLE_REGEX: ClassVar[
+        str
+    ] = _BIGQUERY_DEFAULT_SHARDED_TABLE_REGEX
     _BIGQUERY_WILDCARD_REGEX: ClassVar[str] = "((_(\\d+)?)\\*$)|\\*$"
     _BQ_SHARDED_TABLE_SUFFIX: str = "_yyyymmdd"
 
@@ -599,7 +564,6 @@ class ReadEvent:
         query_event: QueryEvent,
         debug_include_full_payloads: bool = False,
     ) -> "ReadEvent":
-
         readEvent = ReadEvent(
             actor_email=query_event.actor_email,
             timestamp=query_event.timestamp,

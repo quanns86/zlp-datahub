@@ -7,6 +7,8 @@ import com.linkedin.datahub.graphql.featureflags.FeatureFlags;
 import com.linkedin.datahub.graphql.generated.AnalyticsConfig;
 import com.linkedin.datahub.graphql.generated.AppConfig;
 import com.linkedin.datahub.graphql.generated.AuthConfig;
+import com.linkedin.datahub.graphql.generated.EntityProfileConfig;
+import com.linkedin.datahub.graphql.generated.EntityProfilesConfig;
 import com.linkedin.datahub.graphql.generated.EntityType;
 import com.linkedin.datahub.graphql.generated.FeatureFlagsConfig;
 import com.linkedin.datahub.graphql.generated.IdentityManagementConfig;
@@ -16,6 +18,7 @@ import com.linkedin.datahub.graphql.generated.PoliciesConfig;
 import com.linkedin.datahub.graphql.generated.Privilege;
 import com.linkedin.datahub.graphql.generated.QueriesTabConfig;
 import com.linkedin.datahub.graphql.generated.ResourcePrivileges;
+import com.linkedin.datahub.graphql.generated.SearchResultsVisualConfig;
 import com.linkedin.datahub.graphql.generated.TelemetryConfig;
 import com.linkedin.datahub.graphql.generated.TestsConfig;
 import com.linkedin.datahub.graphql.generated.ViewsConfig;
@@ -24,8 +27,8 @@ import com.linkedin.metadata.config.DataHubConfiguration;
 import com.linkedin.metadata.config.IngestionConfiguration;
 import com.linkedin.metadata.config.TestsConfiguration;
 import com.linkedin.metadata.config.ViewsConfiguration;
-import com.linkedin.metadata.telemetry.TelemetryConfiguration;
 import com.linkedin.metadata.config.VisualConfiguration;
+import com.linkedin.metadata.config.telemetry.TelemetryConfiguration;
 import com.linkedin.metadata.version.GitVersion;
 import graphql.schema.DataFetcher;
 import graphql.schema.DataFetchingEnvironment;
@@ -133,6 +136,22 @@ public class AppConfigResolver implements DataFetcher<CompletableFuture<AppConfi
       queriesTabConfig.setQueriesTabResultSize(_visualConfiguration.getQueriesTab().getQueriesTabResultSize());
       visualConfig.setQueriesTab(queriesTabConfig);
     }
+    if (_visualConfiguration != null && _visualConfiguration.getEntityProfile() != null) {
+      EntityProfilesConfig entityProfilesConfig = new EntityProfilesConfig();
+      if (_visualConfiguration.getEntityProfile().getDomainDefaultTab() != null) {
+        EntityProfileConfig profileConfig = new EntityProfileConfig();
+        profileConfig.setDefaultTab(_visualConfiguration.getEntityProfile().getDomainDefaultTab());
+        entityProfilesConfig.setDomain(profileConfig);
+      }
+      visualConfig.setEntityProfiles(entityProfilesConfig);
+    }
+    if (_visualConfiguration != null && _visualConfiguration.getSearchResult() != null) {
+      SearchResultsVisualConfig searchResultsVisualConfig = new SearchResultsVisualConfig();
+      if (_visualConfiguration.getSearchResult().getEnableNameHighlight() != null) {
+        searchResultsVisualConfig.setEnableNameHighlight(_visualConfiguration.getSearchResult().getEnableNameHighlight());
+      }
+      visualConfig.setSearchResult(searchResultsVisualConfig);
+    }
     appConfig.setVisualConfig(visualConfig);
 
     final TelemetryConfig telemetryConfig = new TelemetryConfig();
@@ -147,8 +166,15 @@ public class AppConfigResolver implements DataFetcher<CompletableFuture<AppConfi
     viewsConfig.setEnabled(_viewsConfiguration.isEnabled());
     appConfig.setViewsConfig(viewsConfig);
 
-    final FeatureFlagsConfig featureFlagsConfig = new FeatureFlagsConfig();
-    featureFlagsConfig.setReadOnlyModeEnabled(_featureFlags.isReadOnlyModeEnabled());
+    final FeatureFlagsConfig featureFlagsConfig = FeatureFlagsConfig.builder()
+      .setShowSearchFiltersV2(_featureFlags.isShowSearchFiltersV2())
+      .setReadOnlyModeEnabled(_featureFlags.isReadOnlyModeEnabled())
+      .setShowBrowseV2(_featureFlags.isShowBrowseV2())
+      .setShowAcrylInfo(_featureFlags.isShowAcrylInfo())
+      .setShowAccessManagement(_featureFlags.isShowAccessManagement())
+      .setNestedDomainsEnabled(_featureFlags.isNestedDomainsEnabled())
+      .build();
+
     appConfig.setFeatureFlags(featureFlagsConfig);
 
     return CompletableFuture.completedFuture(appConfig);

@@ -1,13 +1,13 @@
 package com.linkedin.metadata.search.elasticsearch.query.request;
 
+import com.linkedin.metadata.config.search.SearchConfiguration;
+import com.linkedin.metadata.config.search.custom.CustomSearchConfiguration;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.linkedin.common.urn.Urn;
 import com.linkedin.data.template.DoubleMap;
 import com.linkedin.data.template.LongMap;
-import com.linkedin.metadata.config.search.SearchConfiguration;
-import com.linkedin.metadata.config.search.custom.CustomSearchConfiguration;
 import com.linkedin.metadata.models.EntitySpec;
 import com.linkedin.metadata.models.SearchableFieldSpec;
 import com.linkedin.metadata.models.annotation.SearchableAnnotation;
@@ -28,6 +28,8 @@ import com.linkedin.metadata.search.SearchEntity;
 import com.linkedin.metadata.search.SearchEntityArray;
 import com.linkedin.metadata.search.SearchResult;
 import com.linkedin.metadata.search.SearchResultMetadata;
+import com.linkedin.metadata.search.SearchSuggestion;
+import com.linkedin.metadata.search.SearchSuggestionArray;
 import com.linkedin.metadata.search.features.Features;
 import com.linkedin.metadata.search.utils.ESUtils;
 import com.linkedin.metadata.utils.SearchUtil;
@@ -49,26 +51,28 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
-import org.elasticsearch.action.search.SearchRequest;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.common.text.Text;
-import org.elasticsearch.common.unit.TimeValue;
-import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.QueryBuilder;
-import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.aggregations.Aggregation;
-import org.elasticsearch.search.aggregations.AggregationBuilders;
-import org.elasticsearch.search.aggregations.Aggregations;
-import org.elasticsearch.search.aggregations.bucket.terms.ParsedTerms;
-import org.elasticsearch.search.aggregations.bucket.terms.Terms;
-import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
-import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
+import org.opensearch.action.search.SearchRequest;
+import org.opensearch.action.search.SearchResponse;
+import org.opensearch.common.text.Text;
+import org.opensearch.common.unit.TimeValue;
+import org.opensearch.index.query.BoolQueryBuilder;
+import org.opensearch.index.query.QueryBuilder;
+import org.opensearch.index.query.QueryBuilders;
+import org.opensearch.search.SearchHit;
+import org.opensearch.search.aggregations.Aggregation;
+import org.opensearch.search.aggregations.AggregationBuilders;
+import org.opensearch.search.aggregations.Aggregations;
+import org.opensearch.search.aggregations.bucket.terms.ParsedTerms;
+import org.opensearch.search.aggregations.bucket.terms.Terms;
+import org.opensearch.search.builder.SearchSourceBuilder;
+import org.opensearch.search.fetch.subphase.highlight.HighlightBuilder;
+import org.opensearch.search.fetch.subphase.highlight.HighlightField;
+import org.opensearch.search.suggest.term.TermSuggestion;
 
-import static com.linkedin.metadata.search.utils.ESUtils.KEYWORD_SUFFIX;
+import static com.linkedin.metadata.search.utils.ESUtils.NAME_SUGGESTION;
 import static com.linkedin.metadata.search.utils.ESUtils.toFacetField;
 import static com.linkedin.metadata.search.utils.SearchUtils.applyDefaultSearchFlags;
 import static com.linkedin.metadata.utils.SearchUtil.*;
@@ -158,18 +162,7 @@ public class SearchRequestHandler {
   public static BoolQueryBuilder getFilterQuery(@Nullable Filter filter) {
     BoolQueryBuilder filterQuery = ESUtils.buildFilterQuery(filter, false);
 
-    boolean removedInOrFilter = false;
-    if (filter != null) {
-      removedInOrFilter = filter.getOr().stream().anyMatch(
-              or -> or.getAnd().stream().anyMatch(criterion -> criterion.getField().equals(REMOVED) || criterion.getField().equals(REMOVED + KEYWORD_SUFFIX))
-      );
-    }
-    // Filter out entities that are marked "removed" if and only if filter does not contain a criterion referencing it.
-    if (!removedInOrFilter) {
-      filterQuery.mustNot(QueryBuilders.matchQuery(REMOVED, true));
-    }
-
-    return filterQuery;
+    return filterSoftDeletedByDefault(filter, filterQuery);
   }
 
   /**
@@ -202,7 +195,7 @@ public class SearchRequestHandler {
     BoolQueryBuilder filterQuery = getFilterQuery(filter);
     searchSourceBuilder.query(QueryBuilders.boolQuery()
             .must(getQuery(input, finalSearchFlags.isFulltext()))
-            .must(filterQuery));
+            .filter(filterQuery));
     if (!finalSearchFlags.isSkipAggregates()) {
       _aggregationQueryBuilder.getAggregations(facets).forEach(searchSourceBuilder::aggregation);
     }
@@ -210,6 +203,11 @@ public class SearchRequestHandler {
       searchSourceBuilder.highlighter(_highlights);
     }
     ESUtils.buildSortOrder(searchSourceBuilder, sortCriterion);
+
+    if (finalSearchFlags.isGetSuggestions()) {
+      ESUtils.buildNameSuggestions(searchSourceBuilder, input);
+    }
+
     searchRequest.source(searchSourceBuilder);
     log.debug("Search request is: " + searchRequest.toString());
 
@@ -230,7 +228,7 @@ public class SearchRequestHandler {
   @Nonnull
   @WithSpan
   public SearchRequest getSearchRequest(@Nonnull String input, @Nullable Filter filter,
-      @Nullable SortCriterion sortCriterion, @Nullable Object[] sort, @Nullable String pitId, @Nonnull String keepAlive,
+      @Nullable SortCriterion sortCriterion, @Nullable Object[] sort, @Nullable String pitId, @Nullable String keepAlive,
       int size, SearchFlags searchFlags) {
     SearchRequest searchRequest = new PITAwareSearchRequest();
     SearchFlags finalSearchFlags = applyDefaultSearchFlags(searchFlags, input, DEFAULT_SERVICE_SEARCH_FLAGS);
@@ -242,7 +240,7 @@ public class SearchRequestHandler {
     searchSourceBuilder.fetchSource("urn", null);
 
     BoolQueryBuilder filterQuery = getFilterQuery(filter);
-    searchSourceBuilder.query(QueryBuilders.boolQuery().must(getQuery(input, finalSearchFlags.isFulltext())).must(filterQuery));
+    searchSourceBuilder.query(QueryBuilders.boolQuery().must(getQuery(input, finalSearchFlags.isFulltext())).filter(filterQuery));
     _aggregationQueryBuilder.getAggregations().forEach(searchSourceBuilder::aggregation);
     searchSourceBuilder.highlighter(getHighlights());
     ESUtils.buildSortOrder(searchSourceBuilder, sortCriterion);
@@ -331,7 +329,7 @@ public class SearchRequestHandler {
     return searchRequest;
   }
 
-  private QueryBuilder getQuery(@Nonnull String query, boolean fulltext) {
+  public QueryBuilder getQuery(@Nonnull String query, boolean fulltext) {
     return _searchQueryBuilder.buildQuery(_entitySpecs, query, fulltext);
   }
 
@@ -482,6 +480,9 @@ public class SearchRequestHandler {
     final List<AggregationMetadata> aggregationMetadataList = extractAggregationMetadata(searchResponse, filter);
     searchResultMetadata.setAggregations(new AggregationMetadataArray(aggregationMetadataList));
 
+    final List<SearchSuggestion> searchSuggestions = extractSearchSuggestions(searchResponse);
+    searchResultMetadata.setSuggestions(new SearchSuggestionArray(searchSuggestions));
+
     return searchResultMetadata;
   }
 
@@ -501,7 +502,7 @@ public class SearchRequestHandler {
       return addFiltersToAggregationMetadata(aggregationMetadataList, filter);
     }
     for (Map.Entry<String, Aggregation> entry : searchResponse.getAggregations().getAsMap().entrySet()) {
-      final Map<String, Long> oneTermAggResult = extractTermAggregations((ParsedTerms) entry.getValue());
+      final Map<String, Long> oneTermAggResult = extractTermAggregations((ParsedTerms) entry.getValue(), entry.getKey().equals("_entityType"));
       if (oneTermAggResult.isEmpty()) {
         continue;
       }
@@ -525,7 +526,24 @@ public class SearchRequestHandler {
     if (aggregation == null) {
       return Collections.emptyMap();
     }
-    return extractTermAggregations((ParsedTerms) aggregation);
+    return extractTermAggregations((ParsedTerms) aggregation, aggregationName.equals("_entityType"));
+  }
+
+  private List<SearchSuggestion> extractSearchSuggestions(@Nonnull SearchResponse searchResponse) {
+    final List<SearchSuggestion> searchSuggestions = new ArrayList<>();
+    if (searchResponse.getSuggest() != null) {
+      TermSuggestion termSuggestion = searchResponse.getSuggest().getSuggestion(NAME_SUGGESTION);
+      if (termSuggestion != null && termSuggestion.getEntries().size() > 0) {
+        termSuggestion.getEntries().get(0).getOptions().forEach(suggestOption -> {
+          SearchSuggestion searchSuggestion = new SearchSuggestion();
+          searchSuggestion.setText(String.valueOf(suggestOption.getText()));
+          searchSuggestion.setFrequency(suggestOption.getFreq());
+          searchSuggestion.setScore(suggestOption.getScore());
+          searchSuggestions.add(searchSuggestion);
+        });
+      }
+    }
+    return searchSuggestions;
   }
 
   /**
@@ -566,7 +584,7 @@ public class SearchRequestHandler {
    * @return a map with aggregation key and corresponding doc counts
    */
   @Nonnull
-  private static Map<String, Long> extractTermAggregations(@Nonnull ParsedTerms terms) {
+  private static Map<String, Long> extractTermAggregations(@Nonnull ParsedTerms terms, boolean includeZeroes) {
 
     final Map<String, Long> aggResult = new HashMap<>();
     List<? extends Terms.Bucket> bucketList = terms.getBuckets();
@@ -579,7 +597,7 @@ public class SearchRequestHandler {
         aggResult.put(String.format("%s%s%s", key, AGGREGATION_SEPARATOR_CHAR, subAggEntry.getKey()), subAggEntry.getValue());
       }
       long docCount = bucket.getDocCount();
-      if (docCount > 0) {
+      if (includeZeroes || docCount > 0) {
         aggResult.put(key, docCount);
       }
     }

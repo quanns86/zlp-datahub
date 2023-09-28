@@ -24,19 +24,21 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.search.SearchHits;
-import org.elasticsearch.search.aggregations.bucket.filter.ParsedFilter;
-import org.elasticsearch.search.aggregations.bucket.terms.ParsedStringTerms;
-import org.elasticsearch.search.aggregations.bucket.terms.Terms;
-import org.elasticsearch.search.aggregations.metrics.ParsedMax;
+import org.opensearch.action.search.SearchResponse;
+import org.opensearch.client.tasks.GetTaskResponse;
+import org.opensearch.index.query.QueryBuilders;
+import org.opensearch.search.SearchHits;
+import org.opensearch.search.aggregations.bucket.filter.ParsedFilter;
+import org.opensearch.search.aggregations.bucket.terms.ParsedStringTerms;
+import org.opensearch.search.aggregations.bucket.terms.Terms;
+import org.opensearch.search.aggregations.metrics.ParsedMax;
 
 
 @Slf4j
@@ -90,6 +92,11 @@ public class ElasticSearchSystemMetadataService implements SystemMetadataService
   @Override
   public void deleteAspect(String urn, String aspect) {
     _esDAO.deleteByUrnAspect(urn, aspect);
+  }
+
+  @Override
+  public Optional<GetTaskResponse> getTaskStatus(@Nonnull String nodeId, long taskId) {
+    return _esDAO.getTaskStatus(nodeId, taskId);
   }
 
   @Override

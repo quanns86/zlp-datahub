@@ -37,10 +37,17 @@ _DELETE_WITH_REFERENCES_TYPES = {
     "glossaryNode",
 }
 
+_RECURSIVE_DELETE_TYPES = {
+    "container",
+    "dataPlatformInstance",
+}
+
 
 @click.group(cls=DefaultGroup, default="by-filter")
 def delete() -> None:
     """Delete metadata from DataHub.
+
+    See `datahub delete by-filter` for the list of available filters.
 
     See https://datahubproject.io/docs/how/delete-metadata for more detailed docs.
     """
@@ -96,9 +103,9 @@ class DeletionResult:
         return value1 + value2
 
 
-@delete.command()
+@delete.command(no_args_is_help=True)
 @click.option(
-    "--registry-id", required=False, type=str, help="e.g. mycompany-dq-model:0.0.1"
+    "--registry-id", required=True, type=str, help="e.g. mycompany-dq-model:0.0.1"
 )
 @click.option(
     "--soft/--hard",
@@ -152,7 +159,7 @@ def by_registry(
         click.echo(tabulate(structured_rows, _RUN_TABLE_COLUMNS, tablefmt="grid"))
 
 
-@delete.command()
+@delete.command(no_args_is_help=True)
 @click.option("--urn", required=True, type=str, help="the urn of the entity")
 @click.option("-n", "--dry-run", required=False, is_flag=True)
 @click.option(
@@ -203,8 +210,13 @@ def references(urn: str, dry_run: bool, force: bool) -> None:
         logger.info(f"Deleted {references_count} references to {urn}")
 
 
-@delete.command()
-@click.option("--urn", required=False, type=str, help="the urn of the entity")
+@delete.command(no_args_is_help=True)
+@click.option(
+    "--urn",
+    required=False,
+    type=str,
+    help="Urn of the entity to delete, for single entity deletion",
+)
 @click.option(
     "-a",
     "--aspect",
@@ -212,45 +224,80 @@ def references(urn: str, dry_run: bool, force: bool) -> None:
     "--aspect-name",
     required=False,
     type=str,
-    help="the aspect name associated with the entity",
+    help="The aspect to delete for specified entity(s)",
 )
 @click.option(
-    "-f", "--force", required=False, is_flag=True, help="force the delete if set"
+    "-f",
+    "--force",
+    required=False,
+    is_flag=True,
+    help="Force deletion, with no confirmation prompts",
 )
 @click.option(
     "--soft/--hard",
     required=False,
     is_flag=True,
     default=True,
-    help="specifies soft/hard deletion",
+    help="Soft deletion can be undone, while hard deletion removes from the database",
 )
 @click.option(
-    "-e", "--env", required=False, type=str, help="the environment of the entity"
+    "-e", "--env", required=False, type=str, help="Environment filter (e.g. PROD)"
 )
 @click.option(
-    "-p", "--platform", required=False, type=str, help="the platform of the entity"
+    "-p",
+    "--platform",
+    required=False,
+    type=str,
+    help="Platform filter (e.g. snowflake)",
 )
 @click.option(
     "--entity-type",
     required=False,
     type=str,
-    help="the entity type of the entity",
+    help="Entity type filter (e.g. dataset)",
 )
-@click.option("--query", required=False, type=str)
+@click.option("--query", required=False, type=str, help="Elasticsearch query string")
+@click.option(
+    "--recursive",
+    required=False,
+    is_flag=True,
+    help="Recursively delete all contained entities (only for containers and dataPlatformInstances)",
+)
 @click.option(
     "--start-time",
     required=False,
     type=ClickDatetime(),
-    help="the start time (only for timeseries aspects)",
+    help="Start time (only for timeseries aspects)",
 )
 @click.option(
     "--end-time",
     required=False,
     type=ClickDatetime(),
-    help="the end time (only for timeseries aspects)",
+    help="End time (only for timeseries aspects)",
 )
-@click.option("-n", "--dry-run", required=False, is_flag=True)
-@click.option("--only-soft-deleted", required=False, is_flag=True, default=False)
+@click.option(
+    "-b",
+    "--batch-size",
+    required=False,
+    default=3000,
+    type=int,
+    help="Batch size when querying for entities to delete."
+    "Maximum 10000. Large batch sizes may cause timeouts.",
+)
+@click.option(
+    "-n",
+    "--dry-run",
+    required=False,
+    is_flag=True,
+    help="Print entities to be deleted; perform no deletion",
+)
+@click.option(
+    "--only-soft-deleted",
+    required=False,
+    is_flag=True,
+    default=False,
+    help="Only delete soft-deleted entities, for hard deletion",
+)
 @upgrade.check_upgrade
 @telemetry.with_telemetry()
 def by_filter(
@@ -262,21 +309,29 @@ def by_filter(
     platform: Optional[str],
     entity_type: Optional[str],
     query: Optional[str],
+    recursive: bool,
     start_time: Optional[datetime],
     end_time: Optional[datetime],
+    batch_size: int,
     dry_run: bool,
     only_soft_deleted: bool,
 ) -> None:
-    """Delete metadata from datahub using a single urn or a combination of filters"""
+    """Delete metadata from datahub using a single urn or a combination of filters."""
 
     # Validate the cli arguments.
     _validate_user_urn_and_filters(
-        urn=urn, entity_type=entity_type, platform=platform, env=env, query=query
+        urn=urn,
+        entity_type=entity_type,
+        platform=platform,
+        env=env,
+        query=query,
+        recursive=recursive,
     )
     soft_delete_filter = _validate_user_soft_delete_flags(
         soft=soft, aspect=aspect, only_soft_deleted=only_soft_deleted
     )
     _validate_user_aspect_flags(aspect=aspect, start_time=start_time, end_time=end_time)
+    _validate_batch_size(batch_size)
     # TODO: add some validation on entity_type
 
     if not force and not soft and not dry_run:
@@ -289,11 +344,29 @@ def by_filter(
     logger.info(f"Using {graph}")
 
     # Determine which urns to delete.
+    delete_by_urn = bool(urn) and not recursive
     if urn:
-        delete_by_urn = True
         urns = [urn]
+
+        if recursive:
+            # Add children urns to the list.
+            if guess_entity_type(urn) == "dataPlatformInstance":
+                urns.extend(
+                    graph.get_urns_by_filter(
+                        platform_instance=urn,
+                        status=soft_delete_filter,
+                        batch_size=batch_size,
+                    )
+                )
+            else:
+                urns.extend(
+                    graph.get_urns_by_filter(
+                        container=urn,
+                        status=soft_delete_filter,
+                        batch_size=batch_size,
+                    )
+                )
     else:
-        delete_by_urn = False
         urns = list(
             graph.get_urns_by_filter(
                 entity_types=[entity_type] if entity_type else None,
@@ -301,6 +374,7 @@ def by_filter(
                 env=env,
                 query=query,
                 status=soft_delete_filter,
+                batch_size=batch_size,
             )
         )
         if len(urns) == 0:
@@ -309,20 +383,22 @@ def by_filter(
             )
             return
 
+    # Print out a summary of the urns to be deleted and confirm with the user.
+    if not delete_by_urn:
         urns_by_type: Dict[str, List[str]] = {}
         for urn in urns:
             entity_type = guess_entity_type(urn)
             urns_by_type.setdefault(entity_type, []).append(urn)
         if len(urns_by_type) > 1:
             # Display a breakdown of urns by entity type if there's multiple.
-            click.echo("Filter matched urns of multiple entity types")
+            click.echo("Found urns of multiple entity types")
             for entity_type, entity_urns in urns_by_type.items():
                 click.echo(
                     f"- {len(entity_urns)} {entity_type} urn(s). Sample: {choices(entity_urns, k=min(5, len(entity_urns)))}"
                 )
         else:
             click.echo(
-                f"Filter matched {len(urns)} {entity_type} urn(s). Sample: {choices(urns, k=min(5, len(urns)))}"
+                f"Found {len(urns)} {entity_type} urn(s). Sample: {choices(urns, k=min(5, len(urns)))}"
             )
 
         if not force and not dry_run:
@@ -364,6 +440,7 @@ def _validate_user_urn_and_filters(
     platform: Optional[str],
     env: Optional[str],
     query: Optional[str],
+    recursive: bool,
 ) -> None:
     # Check urn / filters options.
     if urn:
@@ -382,6 +459,21 @@ def _validate_user_urn_and_filters(
     elif env and not (platform or entity_type):
         logger.warning(
             f"Using --env without other filters will delete all metadata in the {env} environment. Please use with caution."
+        )
+
+    # Check recursive flag.
+    if recursive:
+        if not urn:
+            raise click.UsageError(
+                "The --recursive flag can only be used with a single urn."
+            )
+        elif guess_entity_type(urn) not in _RECURSIVE_DELETE_TYPES:
+            raise click.UsageError(
+                f"The --recursive flag can only be used with these entity types: {_RECURSIVE_DELETE_TYPES}."
+            )
+    elif urn and guess_entity_type(urn) in _RECURSIVE_DELETE_TYPES:
+        logger.warning(
+            f"This will only delete {urn}. Use --recursive to delete all contained entities."
         )
 
 
@@ -441,6 +533,13 @@ def _validate_user_aspect_flags(
         raise click.UsageError(
             "Aspect-specific deletion is only supported for timeseries aspects. Please delete the full entity or use a rollback instead."
         )
+
+
+def _validate_batch_size(batch_size: int) -> None:
+    if batch_size <= 0:
+        raise click.UsageError("Batch size must be a positive integer.")
+    elif batch_size > 10000:
+        raise click.UsageError("Batch size cannot exceed 10,000.")
 
 
 def _delete_one_urn(

@@ -1,4 +1,5 @@
 import enum
+import functools
 import json
 import logging
 import textwrap
@@ -6,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from json.decoder import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Type
 
 from avro.schema import RecordSchema
 from deprecated import deprecated
@@ -14,9 +15,13 @@ from requests.models import HTTPError
 
 from datahub.cli.cli_utils import get_url_and_token
 from datahub.configuration.common import ConfigModel, GraphError, OperationalError
-from datahub.configuration.validate_field_removal import pydantic_removed_field
 from datahub.emitter.aspect import TIMESERIES_ASPECT_MAP
-from datahub.emitter.mce_builder import Aspect, make_data_platform_urn
+from datahub.emitter.mce_builder import (
+    DEFAULT_ENV,
+    Aspect,
+    make_data_platform_urn,
+    make_dataplatform_instance_urn,
+)
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.emitter.rest_emitter import DatahubRestEmitter
 from datahub.emitter.serialization_helper import post_json_transform
@@ -38,32 +43,37 @@ from datahub.metadata.schema_classes import (
     SystemMetadataClass,
     TelemetryClientIdClass,
 )
+from datahub.utilities.perf_timer import PerfTimer
 from datahub.utilities.urns.urn import Urn, guess_entity_type
 
 if TYPE_CHECKING:
     from datahub.ingestion.source.state.entity_removal_state import (
         GenericCheckpointState,
     )
+    from datahub.utilities.sqlglot_lineage import (
+        GraphQLSchemaMetadata,
+        SchemaResolver,
+        SqlParsingResult,
+    )
 
 
 logger = logging.getLogger(__name__)
+
+SearchFilterRule = Dict[str, Any]
 
 
 class DatahubClientConfig(ConfigModel):
     """Configuration class for holding connectivity to datahub gms"""
 
     server: str = "http://localhost:8080"
-    token: Optional[str]
-    timeout_sec: Optional[int]
-    retry_status_codes: Optional[List[int]]
-    retry_max_times: Optional[int]
-    extra_headers: Optional[Dict[str, str]]
-    ca_certificate_path: Optional[str]
+    token: Optional[str] = None
+    timeout_sec: Optional[int] = None
+    retry_status_codes: Optional[List[int]] = None
+    retry_max_times: Optional[int] = None
+    extra_headers: Optional[Dict[str, str]] = None
+    ca_certificate_path: Optional[str] = None
+    client_certificate_path: Optional[str] = None
     disable_ssl_verification: bool = False
-
-    _max_threads_moved_to_sink = pydantic_removed_field(
-        "max_threads", print_warning=False
-    )
 
 
 # Alias for backwards compatibility.
@@ -82,6 +92,12 @@ class RemovedStatusFilter(enum.Enum):
 
     ONLY_SOFT_DELETED = "ONLY_SOFT_DELETED"
     """Search only soft-deleted entities."""
+
+
+@dataclass
+class RelatedEntity:
+    urn: str
+    relationship_type: str
 
 
 def _graphql_entity_type(entity_type: str) -> str:
@@ -117,6 +133,7 @@ class DataHubGraph(DatahubRestEmitter):
             retry_max_times=self.config.retry_max_times,
             extra_headers=self.config.extra_headers,
             ca_certificate_path=self.config.ca_certificate_path,
+            client_certificate_path=self.config.client_certificate_path,
             disable_ssl_verification=self.config.disable_ssl_verification,
         )
         self.test_connection()
@@ -529,17 +546,143 @@ class DataHubGraph(DatahubRestEmitter):
             logger.debug(f"yielding {x['entity']}")
             yield x["entity"]
 
+    def _bulk_fetch_schema_info_by_filter(
+        self,
+        *,
+        platform: Optional[str] = None,
+        platform_instance: Optional[str] = None,
+        env: Optional[str] = None,
+        query: Optional[str] = None,
+        container: Optional[str] = None,
+        status: RemovedStatusFilter = RemovedStatusFilter.NOT_SOFT_DELETED,
+        batch_size: int = 100,
+        extraFilters: Optional[List[SearchFilterRule]] = None,
+    ) -> Iterable[Tuple[str, "GraphQLSchemaMetadata"]]:
+        """Fetch schema info for datasets that match all of the given filters.
+
+        :return: An iterable of (urn, schema info) tuple that match the filters.
+        """
+        types = [_graphql_entity_type("dataset")]
+
+        # Add the query default of * if no query is specified.
+        query = query or "*"
+
+        orFilters = self.generate_filter(
+            platform, platform_instance, env, container, status, extraFilters
+        )
+
+        graphql_query = textwrap.dedent(
+            """
+            query scrollUrnsWithFilters(
+                $types: [EntityType!],
+                $query: String!,
+                $orFilters: [AndFilterInput!],
+                $batchSize: Int!,
+                $scrollId: String) {
+
+                scrollAcrossEntities(input: {
+                    query: $query,
+                    count: $batchSize,
+                    scrollId: $scrollId,
+                    types: $types,
+                    orFilters: $orFilters,
+                    searchFlags: {
+                        skipHighlighting: true
+                        skipAggregates: true
+                    }
+                }) {
+                    nextScrollId
+                    searchResults {
+                        entity {
+                            urn
+                            ... on Dataset {
+                                schemaMetadata(version: 0) {
+                                    fields {
+                                        fieldPath
+                                        nativeDataType
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            """
+        )
+
+        variables = {
+            "types": types,
+            "query": query,
+            "orFilters": orFilters,
+            "batchSize": batch_size,
+        }
+
+        for entity in self._scroll_across_entities(graphql_query, variables):
+            if entity.get("schemaMetadata"):
+                yield entity["urn"], entity["schemaMetadata"]
+
+    def generate_filter(
+        self,
+        platform: Optional[str],
+        platform_instance: Optional[str],
+        env: Optional[str],
+        container: Optional[str],
+        status: RemovedStatusFilter,
+        extraFilters: Optional[List[SearchFilterRule]],
+    ) -> List[Dict[str, List[SearchFilterRule]]]:
+        andFilters: List[SearchFilterRule] = []
+
+        # Platform filter.
+        if platform:
+            andFilters.append(self._get_platform_filter(platform))
+
+        # Platform instance filter.
+        if platform_instance:
+            andFilters.append(
+                self._get_platform_instance_filter(platform, platform_instance)
+            )
+
+        # Browse path v2 filter.
+        if container:
+            andFilters.append(self._get_container_filter(container))
+
+        # Status filter.
+        status_filter = self._get_status_filer(status)
+        if status_filter:
+            andFilters.append(status_filter)
+
+        # Extra filters.
+        if extraFilters:
+            andFilters += extraFilters
+
+        orFilters: List[Dict[str, List[SearchFilterRule]]] = [{"and": andFilters}]
+
+        # Env filter
+        if env:
+            envOrConditions = self._get_env_or_conditions(env)
+            # This matches ALL of the andFilters and at least one of the envOrConditions.
+            orFilters = [
+                {"and": andFilters["and"] + [extraCondition]}
+                for extraCondition in envOrConditions
+                for andFilters in orFilters
+            ]
+
+        return orFilters
+
     def get_urns_by_filter(
         self,
         *,
         entity_types: Optional[List[str]] = None,
         platform: Optional[str] = None,
+        platform_instance: Optional[str] = None,
         env: Optional[str] = None,
         query: Optional[str] = None,
+        container: Optional[str] = None,
         status: RemovedStatusFilter = RemovedStatusFilter.NOT_SOFT_DELETED,
         batch_size: int = 10000,
+        extraFilters: Optional[List[SearchFilterRule]] = None,
     ) -> Iterable[str]:
-        """Fetch all urns that match the given filters.
+        """Fetch all urns that match all of the given filters.
 
         Filters are combined conjunctively. If multiple filters are specified, the results will match all of them.
         Note that specifying a platform filter will automatically exclude all entity types that do not have a platform.
@@ -547,96 +690,28 @@ class DataHubGraph(DatahubRestEmitter):
 
         :param entity_types: List of entity types to include. If None, all entity types will be returned.
         :param platform: Platform to filter on. If None, all platforms will be returned.
+        :param platform_instance: Platform instance to filter on. If None, all platform instances will be returned.
         :param env: Environment (e.g. PROD, DEV) to filter on. If None, all environments will be returned.
+        :param query: Query string to filter on. If None, all entities will be returned.
+        :param container: A container urn that entities must be within.
+            This works recursively, so it will include entities within sub-containers as well.
+            If None, all entities will be returned.
+            Note that this requires browsePathV2 aspects (added in 0.10.4+).
         :param status: Filter on the deletion status of the entity. The default is only return non-soft-deleted entities.
+        :param extraFilters: Additional filters to apply. If specified, the results will match all of the filters.
+
+        :return: An iterable of urns that match the filters.
         """
 
-        types: Optional[List[str]] = None
-        if entity_types is not None:
-            if not entity_types:
-                raise ValueError("entity_types cannot be an empty list")
-
-            types = [_graphql_entity_type(entity_type) for entity_type in entity_types]
+        types = self._get_types(entity_types)
 
         # Add the query default of * if no query is specified.
         query = query or "*"
 
-        FilterRule = Dict[str, Any]
-        andFilters: List[FilterRule] = []
-
-        # Platform filter.
-        if platform:
-            andFilters += [
-                {
-                    "field": "platform.keyword",
-                    "values": [make_data_platform_urn(platform)],
-                    "condition": "EQUAL",
-                }
-            ]
-
-        # Status filter.
-        if status == RemovedStatusFilter.NOT_SOFT_DELETED:
-            # Subtle: in some cases (e.g. when the dataset doesn't have a status aspect), the
-            # removed field is simply not present in the ElasticSearch document. Ideally this
-            # would be a "removed" : "false" filter, but that doesn't work. Instead, we need to
-            # use a negated filter.
-            andFilters.append(
-                {
-                    "field": "removed",
-                    "values": ["true"],
-                    "condition": "EQUAL",
-                    "negated": True,
-                }
-            )
-        elif status == RemovedStatusFilter.ONLY_SOFT_DELETED:
-            andFilters.append(
-                {
-                    "field": "removed",
-                    "values": ["true"],
-                    "condition": "EQUAL",
-                }
-            )
-        elif status == RemovedStatusFilter.ALL:
-            # We don't need to add a filter for this case.
-            pass
-        else:
-            raise ValueError(f"Invalid status filter: {status}")
-
-        orFilters: List[Dict[str, List[FilterRule]]] = [{"and": andFilters}]
-
         # Env filter.
-        if env:
-            # The env filter is a bit more tricky since it's not always stored
-            # in the same place in ElasticSearch.
-
-            envOrConditions: List[FilterRule] = [
-                # For most entity types, we look at the origin field.
-                {
-                    "field": "origin",
-                    "value": env,
-                    "condition": "EQUAL",
-                },
-                # For containers, we look at the customProperties field.
-                # For any containers created after https://github.com/datahub-project/datahub/pull/8027,
-                # we look for the "env" property. Otherwise, we use the "instance" property.
-                {
-                    "field": "customProperties",
-                    "value": f"env={env}",
-                },
-                {
-                    "field": "customProperties",
-                    "value": f"instance={env}",
-                },
-                # Note that not all entity types have an env (e.g. dashboards / charts).
-                # If the env filter is specified, these will be excluded.
-            ]
-
-            # This matches ALL of the andFilters and at least one of the envOrConditions.
-            orFilters = [
-                {"and": andFilters["and"] + [extraCondition]}
-                for extraCondition in envOrConditions
-                for andFilters in orFilters
-            ]
+        orFilters = self.generate_filter(
+            platform, platform_instance, env, container, status, extraFilters
+        )
 
         graphql_query = textwrap.dedent(
             """
@@ -669,18 +744,26 @@ class DataHubGraph(DatahubRestEmitter):
             """
         )
 
+        variables = {
+            "types": types,
+            "query": query,
+            "orFilters": orFilters,
+            "batchSize": batch_size,
+        }
+
+        for entity in self._scroll_across_entities(graphql_query, variables):
+            yield entity["urn"]
+
+    def _scroll_across_entities(
+        self, graphql_query: str, variables_orig: dict
+    ) -> Iterable[dict]:
+        variables = variables_orig.copy()
         first_iter = True
         scroll_id: Optional[str] = None
         while first_iter or scroll_id:
             first_iter = False
+            variables["scrollId"] = scroll_id
 
-            variables = {
-                "types": types,
-                "query": query,
-                "orFilters": orFilters,
-                "batchSize": batch_size,
-                "scrollId": scroll_id,
-            }
             response = self.execute_graphql(
                 graphql_query,
                 variables=variables,
@@ -688,12 +771,115 @@ class DataHubGraph(DatahubRestEmitter):
             data = response["scrollAcrossEntities"]
             scroll_id = data["nextScrollId"]
             for entry in data["searchResults"]:
-                yield entry["entity"]["urn"]
+                yield entry["entity"]
 
             if scroll_id:
                 logger.debug(
                     f"Scrolling to next scrollAcrossEntities page: {scroll_id}"
                 )
+
+    def _get_env_or_conditions(self, env: str) -> List[SearchFilterRule]:
+        # The env filter is a bit more tricky since it's not always stored
+        # in the same place in ElasticSearch.
+        return [
+            # For most entity types, we look at the origin field.
+            {
+                "field": "origin",
+                "value": env,
+                "condition": "EQUAL",
+            },
+            # For containers, we look at the customProperties field.
+            # For any containers created after https://github.com/datahub-project/datahub/pull/8027,
+            # we look for the "env" property. Otherwise, we use the "instance" property.
+            {
+                "field": "customProperties",
+                "value": f"env={env}",
+            },
+            {
+                "field": "customProperties",
+                "value": f"instance={env}",
+            },
+            # Note that not all entity types have an env (e.g. dashboards / charts).
+            # If the env filter is specified, these will be excluded.
+        ]
+
+    def _get_status_filer(
+        self, status: RemovedStatusFilter
+    ) -> Optional[SearchFilterRule]:
+        if status == RemovedStatusFilter.NOT_SOFT_DELETED:
+            # Subtle: in some cases (e.g. when the dataset doesn't have a status aspect), the
+            # removed field is simply not present in the ElasticSearch document. Ideally this
+            # would be a "removed" : "false" filter, but that doesn't work. Instead, we need to
+            # use a negated filter.
+            return {
+                "field": "removed",
+                "values": ["true"],
+                "condition": "EQUAL",
+                "negated": True,
+            }
+
+        elif status == RemovedStatusFilter.ONLY_SOFT_DELETED:
+            return {
+                "field": "removed",
+                "values": ["true"],
+                "condition": "EQUAL",
+            }
+
+        elif status == RemovedStatusFilter.ALL:
+            # We don't need to add a filter for this case.
+            return None
+        else:
+            raise ValueError(f"Invalid status filter: {status}")
+
+    def _get_container_filter(self, container: str) -> SearchFilterRule:
+        # Warn if container is not a fully qualified urn.
+        # TODO: Change this once we have a first-class container urn type.
+        if guess_entity_type(container) != "container":
+            raise ValueError(f"Invalid container urn: {container}")
+
+        return {
+            "field": "browsePathV2",
+            "values": [container],
+            "condition": "CONTAIN",
+        }
+
+    def _get_platform_instance_filter(
+        self, platform: Optional[str], platform_instance: str
+    ) -> SearchFilterRule:
+        if platform:
+            # Massage the platform instance into a fully qualified urn, if necessary.
+            platform_instance = make_dataplatform_instance_urn(
+                platform, platform_instance
+            )
+
+        # Warn if platform_instance is not a fully qualified urn.
+        # TODO: Change this once we have a first-class data platform instance urn type.
+        if guess_entity_type(platform_instance) != "dataPlatformInstance":
+            raise ValueError(f"Invalid data platform instance urn: {platform_instance}")
+
+        return {
+            "field": "platformInstance",
+            "values": [platform_instance],
+            "condition": "EQUAL",
+        }
+
+    def _get_platform_filter(self, platform: str) -> SearchFilterRule:
+        return {
+            "field": "platform.keyword",
+            "values": [make_data_platform_urn(platform)],
+            "condition": "EQUAL",
+        }
+
+    def _get_types(self, entity_types: Optional[List[str]]) -> Optional[List[str]]:
+        types: Optional[List[str]] = None
+        if entity_types is not None:
+            if not entity_types:
+                raise ValueError(
+                    "entity_types cannot be an empty list; use None for all entities"
+                )
+
+            types = [_graphql_entity_type(entity_type) for entity_type in entity_types]
+        return types
 
     def get_latest_pipeline_checkpoint(
         self, pipeline_name: str, platform: str
@@ -760,11 +946,6 @@ class DataHubGraph(DatahubRestEmitter):
         INCOMING = "INCOMING"
         OUTGOING = "OUTGOING"
 
-    @dataclass
-    class RelatedEntity:
-        urn: str
-        relationship_type: str
-
     def get_related_entities(
         self,
         entity_urn: str,
@@ -785,7 +966,7 @@ class DataHubGraph(DatahubRestEmitter):
                 },
             )
             for related_entity in response.get("entities", []):
-                yield DataHubGraph.RelatedEntity(
+                yield RelatedEntity(
                     urn=related_entity["urn"],
                     relationship_type=related_entity["relationshipType"],
                 )
@@ -947,6 +1128,86 @@ class DataHubGraph(DatahubRestEmitter):
         reference_count = response.get("total", 0)
         related_aspects = response.get("relatedAspects", [])
         return reference_count, related_aspects
+
+    @functools.lru_cache()
+    def _make_schema_resolver(
+        self,
+        platform: str,
+        platform_instance: Optional[str],
+        env: str,
+        include_graph: bool = True,
+    ) -> "SchemaResolver":
+        from datahub.utilities.sqlglot_lineage import SchemaResolver
+
+        return SchemaResolver(
+            platform=platform,
+            platform_instance=platform_instance,
+            env=env,
+            graph=self if include_graph else None,
+        )
+
+    def initialize_schema_resolver_from_datahub(
+        self, platform: str, platform_instance: Optional[str], env: str
+    ) -> Tuple["SchemaResolver", Set[str]]:
+        logger.info("Initializing schema resolver")
+        schema_resolver = self._make_schema_resolver(
+            platform, platform_instance, env, include_graph=False
+        )
+
+        logger.info(f"Fetching schemas for platform {platform}, env {env}")
+        urns = []
+        count = 0
+        with PerfTimer() as timer:
+            for urn, schema_info in self._bulk_fetch_schema_info_by_filter(
+                platform=platform,
+                platform_instance=platform_instance,
+                env=env,
+            ):
+                try:
+                    urns.append(urn)
+                    schema_resolver.add_graphql_schema_metadata(urn, schema_info)
+                    count += 1
+                except Exception:
+                    logger.warning("Failed to add schema info", exc_info=True)
+
+                if count % 1000 == 0:
+                    logger.debug(
+                        f"Loaded {count} schema info in {timer.elapsed_seconds()} seconds"
+                    )
+            logger.info(
+                f"Finished loading total {count} schema info in {timer.elapsed_seconds()} seconds"
+            )
+
+        logger.info("Finished initializing schema resolver")
+        return schema_resolver, set(urns)
+
+    def parse_sql_lineage(
+        self,
+        sql: str,
+        *,
+        platform: str,
+        platform_instance: Optional[str] = None,
+        env: str = DEFAULT_ENV,
+        default_db: Optional[str] = None,
+        default_schema: Optional[str] = None,
+    ) -> "SqlParsingResult":
+        from datahub.utilities.sqlglot_lineage import sqlglot_lineage
+
+        # Cache the schema resolver to make bulk parsing faster.
+        schema_resolver = self._make_schema_resolver(
+            platform=platform, platform_instance=platform_instance, env=env
+        )
+
+        return sqlglot_lineage(
+            sql,
+            schema_resolver=schema_resolver,
+            default_db=default_db,
+            default_schema=default_schema,
+        )
+
+    def close(self) -> None:
+        self._make_schema_resolver.cache_clear()
+        super().close()
 
 
 def get_default_graph() -> DataHubGraph:

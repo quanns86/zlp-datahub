@@ -34,6 +34,10 @@ import {
     FineGrainedLineage,
     EntityPrivileges,
     Embed,
+    FabricType,
+    BrowsePathV2,
+    DataJobInputOutput,
+    ParentDomainsResult,
 } from '../../../types.generated';
 import { FetchedEntity } from '../../lineage/types';
 
@@ -45,6 +49,7 @@ export type EntityTab = {
         enabled: (GenericEntityProperties, T) => boolean; // Whether the tab is enabled on the UI. Defaults to true.
     };
     properties?: any;
+    id?: string;
 };
 
 export type EntitySidebarSection = {
@@ -61,6 +66,7 @@ export type EntitySubHeaderSection = {
 
 export type GenericEntityProperties = {
     urn?: string;
+    type?: EntityType;
     name?: Maybe<string>;
     properties?: Maybe<{
         description?: Maybe<string>;
@@ -94,6 +100,7 @@ export type GenericEntityProperties = {
     status?: Maybe<Status>;
     deprecation?: Maybe<Deprecation>;
     parentContainers?: Maybe<ParentContainersResult>;
+    parentDomains?: Maybe<ParentDomainsResult>;
     children?: Maybe<EntityRelationshipsResult>;
     parentNodes?: Maybe<ParentNodesResult>;
     isAChildren?: Maybe<EntityRelationshipsResult>;
@@ -105,6 +112,9 @@ export type GenericEntityProperties = {
     privileges?: Maybe<EntityPrivileges>;
     embed?: Maybe<Embed>;
     exists?: boolean;
+    origin?: Maybe<FabricType>;
+    browsePathV2?: Maybe<BrowsePathV2>;
+    inputOutput?: Maybe<DataJobInputOutput>;
 };
 
 export type GenericEntityUpdate = {
