@@ -730,6 +730,17 @@ class HDFSSource(StatefulIngestionSourceBase):
         database = config_dict.get("database", "no_database")
         return f"{self.platform}_{host_port}_{database}"
 
+    def infer_partition_all(self, files_to_infer: List[str]):
+        partition_format_count = {}
+        for file in files_to_infer:
+            parent_dir, filename = os.path.split(file)
+            parent_dir_rel = self.get_relative_path_from_hadoop_host(parent_dir)
+            partition_by = infer_partition(parent_dir_rel)
+            partition_format_count[partition_by] = partition_format_count.get(
+                partition_by, 0
+            ) + 1
+        return sorted(partition_format_count, reverse=True)[0]
+
     def get_workunits(self) -> Iterable[MetadataWorkUnit]:
         tracked_schema = []
         yield from self.gen_database_containers()
@@ -748,11 +759,8 @@ class HDFSSource(StatefulIngestionSourceBase):
                         if len(files_to_infer) > 0:
                             if not self.source_config.merge_schema:
                                 files_to_infer = [files_to_infer[-1]] if self.source_config.infer_latest else [files_to_infer[0]]
-                            parent_dir, filename = os.path.split(files_to_infer[0])
-                            parent_dir_rel = self.get_relative_path_from_hadoop_host(parent_dir)
-                            partition_by = infer_partition(parent_dir_rel)
+                            partition_by = self.infer_partition_all(files_to_infer)
                             try:
-
                                 yield from self.ingest_table(
                                     schema=schema,
                                     files_to_infer=files_to_infer,
