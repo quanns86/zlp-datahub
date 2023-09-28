@@ -4,7 +4,7 @@ ARG DOCKER_VERSION=latest
 FROM acryldata/datahub-actions:head as base
 
 FROM eclipse-temurin:11 as prod-build
-COPY . /datahub-src
+COPY --from=project . /datahub-src
 WORKDIR /datahub-src
 # We noticed that the gradle wrapper download failed frequently on in CI on arm64 machines.
 # I suspect this was due because of the QEMU emulation slowdown, combined with the arm64
@@ -16,8 +16,7 @@ WORKDIR /datahub-src
 # Inspired by https://github.com/gradle/gradle/issues/18124#issuecomment-958182335.
 # and https://unix.stackexchange.com/a/82610/378179.
 # This is a workaround for https://github.com/gradle/gradle/issues/18124.
-RUN (for attempt in 1 2 3 4 5; do ./gradlew --version && break ; echo "Failed to download gradle wrapper (attempt $attempt)" && sleep $((2<<$attempt)) ; done ) && \
-    ./gradlew :metadata-events:mxe-schemas:build
+RUN ./gradlew :metadata-events:mxe-schemas:build
 
 FROM base as prod-codegen
 USER root
