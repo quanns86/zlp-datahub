@@ -4,7 +4,7 @@ ARG DOCKER_VERSION=latest
 FROM acryldata/datahub-actions:head as base
 
 FROM eclipse-temurin:11 as prod-build
-COPY --from=project . /datahub-src
+COPY . /datahub-src
 WORKDIR /datahub-src
 # We noticed that the gradle wrapper download failed frequently on in CI on arm64 machines.
 # I suspect this was due because of the QEMU emulation slowdown, combined with the arm64
