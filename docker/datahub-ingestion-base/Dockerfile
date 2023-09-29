@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y -qq \
     ldap-utils \
     && python -m pip install --no-cache --upgrade pip wheel setuptools \
     && wget -q https://github.com/edenhill/librdkafka/archive/v${LIBRDKAFKA_VERSION}.tar.gz -O - | \
-          tar -xz -C /root \
+    tar -xz -C /root \
     && cd /root/librdkafka-${LIBRDKAFKA_VERSION} \
     && ./configure --prefix /usr && make && make install && cd .. && rm -rf /root/librdkafka-${LIBRDKAFKA_VERSION} \
     && apt-get remove -y make \
@@ -80,6 +80,7 @@ RUN if [ $(arch) = "x86_64" ]; then \
 
 FROM ${BASE_IMAGE} as slim-install
 # Do nothing else on top of base
+
 
 FROM ${APP_ENV}-install
 
