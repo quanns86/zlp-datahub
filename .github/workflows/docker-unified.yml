@@ -125,7 +125,7 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       needs_artifact_download: ${{ (steps.filter.outputs.datahub-ingestion-base == 'true' || steps.filter.outputs.datahub-ingestion == 'true') && needs.setup.outputs.publish != 'true' }}
-    needs: [setup, datahub_ingestion_base_full_build]
+    needs: [setup]
     steps:
       - name: Check out the repo
         uses: actions/checkout@v3
