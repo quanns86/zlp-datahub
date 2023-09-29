@@ -168,7 +168,53 @@ jobs:
       - name: Compute Tag (Full)
         id: tag
         run: echo "tag=${{ (steps.filter.outputs.datahub-ingestion-base == 'true' || steps.filter.outputs.datahub-ingestion == 'true') && needs.setup.outputs.unique_tag || 'head' }}" >> $GITHUB_OUTPUT
-
+  datahub-actions:
+    name: Build and Push DataHub Action Docker Images
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      needs_artifact_download: ${{ (steps.filter.outputs.datahub-ingestion-base == 'true' || steps.filter.outputs.datahub-ingestion == 'true') && needs.setup.outputs.publish != 'true' }}
+    needs: [setup]
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 800
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            datahub-actions-docker:
+              - 'docker/datahub-actions/**'
+            datahub-actions:
+              - 'datahub-actions/**'
+      - name: Download Base Image
+        uses: ishworkh/docker-image-artifact-download@v1
+        if: ${{ needs.setup.outputs.publish != 'true' && steps.filter.outputs.datahub-ingestion-base == 'true' }}
+        with:
+          image: ${{ env.DATAHUB_INGESTION_IMAGE }}:${{ steps.filter.outputs.datahub-ingestion == 'true' && needs.setup.outputs.unique_tag || 'head' }}
+      - name: Build and push Full Image
+        if: ${{ steps.filter.outputs.datahub-ingestion == 'true' || needs.setup.outputs.publish }}
+        uses: ./.github/actions/docker-custom-build-and-push
+        with:
+          target: final
+          images: |
+            ${{ env.DATAHUB_ACTIONS_IMAGE }}
+          build-args: |
+            BASE_IMAGE=${{ env.DATAHUB_INGESTION_IMAGE }}
+            DOCKER_VERSION=${{ steps.filter.outputs.datahub-ingestion == 'true' && needs.setup.outputs.unique_tag || 'head' }}
+            RELEASE_VERSION=${{ needs.setup.outputs.python_release_version }}
+          tags: ${{ needs.setup.outputs.tag }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          publish: ${{ needs.setup.outputs.publish }}
+          context: .
+          file: ./docker/datahub-ingestion/Dockerfile
+          platforms: linux/amd64,linux/arm64/v8
+      - name: Compute Tag (Full)
+        id: tag
+        run: echo "tag=${{ (steps.filter.outputs.datahub-ingestion-base == 'true' || steps.filter.outputs.datahub-ingestion == 'true') && needs.setup.outputs.unique_tag || 'head' }}" >> $GITHUB_OUTPUT
+  
   datahub_upgrade_build:
     name: Build and Push DataHub Upgrade Docker Image
     runs-on: ubuntu-latest
