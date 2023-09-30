@@ -37,8 +37,7 @@ RUN chmod a+x /start_datahub_actions.sh && \
 RUN mkdir -p /etc/datahub/actions/conf && mkdir -p /etc/datahub/actions/system/conf
 # COPY ./docker/config/*.yaml /etc/datahub/actions/system/conf
 
-RUN addgroup --system datahub && adduser --system datahub --ingroup datahub \
-  && chown datahub:datahub /etc/datahub \
+RUN chown datahub:datahub /etc/datahub \
   && chown -R datahub:datahub /tmp/datahub
 
 # By transferring the root user's pip cache directory to the datahub
