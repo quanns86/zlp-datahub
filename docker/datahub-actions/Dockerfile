@@ -18,6 +18,7 @@ ARG BASE_IMAGE=acryldata/datahub-ingestion-base
 ARG DOCKER_VERSION=head
 
 FROM $BASE_IMAGE:$DOCKER_VERSION as prod-install
+USER root
 COPY datahub-actions /actions-src
 RUN mkdir -p /etc/datahub/actions && mkdir -p /tmp/datahub/logs/actions/system
 RUN cd /actions-src && \
