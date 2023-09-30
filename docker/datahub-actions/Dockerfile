@@ -35,7 +35,7 @@ RUN chmod a+x /start_datahub_actions.sh && \
 
 # Add other default configurations into this!
 RUN mkdir -p /etc/datahub/actions/conf && mkdir -p /etc/datahub/actions/system/conf
-COPY ./docker/config/*.yaml /etc/datahub/actions/system/conf
+# COPY ./docker/config/*.yaml /etc/datahub/actions/system/conf
 
 RUN addgroup --system datahub && adduser --system datahub --ingroup datahub \
   && chown datahub:datahub /etc/datahub \
