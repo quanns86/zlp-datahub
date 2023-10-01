@@ -6,8 +6,8 @@ ARG DOCKER_VERSION=head
 FROM $BASE_IMAGE:$DOCKER_VERSION as base
 USER 0
 
-COPY --from=prod-build /datahub-src/metadata-ingestion /datahub-ingestion
-COPY --from=prod-build /datahub-src/metadata-ingestion-modules/airflow-plugin /datahub-ingestion/airflow-plugin
+COPY ./metadata-ingestion /datahub-ingestion
+COPY ./metadata-ingestion-modules/airflow-plugin /datahub-ingestion/airflow-plugin
 
 ARG RELEASE_VERSION
 WORKDIR /datahub-ingestion
