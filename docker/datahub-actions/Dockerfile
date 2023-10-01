@@ -29,13 +29,13 @@ RUN cd /actions-src && \
 
 COPY ./docker/datahub-actions/start.sh /start_datahub_actions.sh
 COPY ./docker/datahub-actions/readiness-check.sh /readiness-check.sh
-COPY ./datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
+COPY ./docker/datahub-actions/run_ingest.sh /usr/local/bin/run_ingest.sh
 RUN chmod a+x /start_datahub_actions.sh && \
   chmod a+x /usr/local/bin/run_ingest.sh
 
 # Add other default configurations into this!
 RUN mkdir -p /etc/datahub/actions/conf && mkdir -p /etc/datahub/actions/system/conf
-# COPY ./docker/config/*.yaml /etc/datahub/actions/system/conf
+COPY ./docker/config/*.yaml /etc/datahub/actions/system/conf
 
 RUN chown datahub:datahub /etc/datahub \
   && chown -R datahub:datahub /tmp/datahub
@@ -50,4 +50,6 @@ FROM ${APP_ENV}-install as final
 USER datahub
 RUN curl -s "https://get.sdkman.io" | bash
 RUN /bin/bash -c "source /$HOME/.sdkman/bin/sdkman-init.sh; sdk version; sdk install java 8.0.332-zulu"
+ENTRYPOINT ["/usr/bin/env"]
+RUN echo "remove entrypoint"
 CMD dockerize -wait ${DATAHUB_GMS_PROTOCOL:-http}://$DATAHUB_GMS_HOST:$DATAHUB_GMS_PORT/health -timeout 240s /start_datahub_actions.sh

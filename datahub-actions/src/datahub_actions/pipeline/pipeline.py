@@ -114,6 +114,11 @@ class Pipeline:
         # Bind config
         config = PipelineConfig.parse_obj(config_dict)
 
+        if not config.enabled:
+            raise Exception(
+                "Pipeline is disabled, but create method was called unexpectedly."
+            )
+
         # Create Context
         ctx = create_action_context(config.name, config.datahub)
 
@@ -181,7 +186,6 @@ class Pipeline:
         return self._stats
 
     def _process_event(self, enveloped_event: EventEnvelope) -> None:
-
         # Attempt to process the incoming event, with retry.
         curr_attempt = 1
         max_attempts = self._retry_count + 1
@@ -218,7 +222,6 @@ class Pipeline:
         curr_event = enveloped_event
         # Iterate through all transformers, sequentially apply them to the result of the previous.
         for transformer in self.transforms:
-
             # Increment stats
             self._stats.increment_transformer_processed_count(transformer)
 

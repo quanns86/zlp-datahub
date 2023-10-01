@@ -13,11 +13,9 @@
 # limitations under the License.
 
 import os
-import setuptools
-import sys
 from typing import Dict, Set
 
-is_py37_or_newer = sys.version_info >= (3, 7)
+import setuptools
 
 package_metadata: dict = {}
 with open("./src/datahub_actions/__init__.py") as fp:
@@ -32,54 +30,18 @@ def get_long_description():
     return description
 
 
+acryl_datahub_min_version = os.environ.get("ACRYL_DATAHUB_MIN_VERSION") or "0.11.0"
+
 base_requirements = {
+    f"acryl-datahub[kafka]>={acryl_datahub_min_version}",
     # Compatibility.
-    "dataclasses>=0.6; python_version < '3.7'",
     "typing_extensions>=3.7.4; python_version < '3.8'",
     "mypy_extensions>=0.4.3",
     # Actual dependencies.
     "typing-inspect",
     "pydantic>=1.5.1",
-    "acryl-datahub>=0.8.34",
     "dictdiffer",
-}
-
-kafka_common = {
-    # The confluent_kafka package provides a number of pre-built wheels for
-    # various platforms and architectures. However, it does not provide wheels
-    # for arm64 (including M1 Macs) or aarch64 (Docker's linux/arm64). This has
-    # remained an open issue on the confluent_kafka project for a year:
-    #   - https://github.com/confluentinc/confluent-kafka-python/issues/1182
-    #   - https://github.com/confluentinc/confluent-kafka-python/pull/1161
-    #
-    # When a wheel is not available, we must build from source instead.
-    # Building from source requires librdkafka to be installed.
-    # Most platforms have an easy way to install librdkafka:
-    #   - MacOS: `brew install librdkafka` gives latest, which is 1.9.x or newer.
-    #   - Debian: `apt install librdkafka` gives 1.6.0 (https://packages.debian.org/bullseye/librdkafka-dev).
-    #   - Ubuntu: `apt install librdkafka` gives 1.8.0 (https://launchpad.net/ubuntu/+source/librdkafka).
-    #
-    # Moreover, confluent_kafka 1.9.0 introduced a hard compatibility break, and
-    # requires librdkafka >=1.9.0. As such, installing confluent_kafka 1.9.x on
-    # most arm64 Linux machines will fail, since it will build from source but then
-    # fail because librdkafka is too old. Hence, we have added an extra requirement
-    # that requires confluent_kafka<1.9.0 on non-MacOS arm64/aarch64 machines, which
-    # should ideally allow the builds to succeed in default conditions. We still
-    # want to allow confluent_kafka >= 1.9.0 for M1 Macs, which is why we can't
-    # broadly restrict confluent_kafka to <1.9.0.
-    #
-    # Note that this is somewhat of a hack, since we don't actually require the
-    # older version of confluent_kafka on those machines. Additionally, we will
-    # need monitor the Debian/Ubuntu PPAs and modify this rule if they start to
-    # support librdkafka >= 1.9.0.
-    "confluent_kafka>=1.5.0",
-    'confluent_kafka<1.9.0; platform_system != "Darwin" and (platform_machine == "aarch64" or platform_machine == "arm64")',
-    # We currently require both Avro libraries. The codegen uses avro-python3 (above)
-    # schema parsers at runtime for generating and reading JSON into Python objects.
-    # At the same time, we use Kafka's AvroSerializer, which internally relies on
-    # fastavro for serialization. We do not use confluent_kafka[avro], since it
-    # is incompatible with its own dep on avro-python3.
-    "fastavro>=1.2.0",
+    "ratelimit",
 }
 
 framework_common = {
@@ -91,13 +53,10 @@ framework_common = {
     "entrypoints",
     "docker",
     "expandvars>=0.6.5",
-    "avro-gen3==0.7.4",
-    "avro>=1.10.2",
     "python-dateutil>=2.8.0",
     "stackprinter",
     "tabulate",
     "progressbar2",
-    *kafka_common,
 }
 
 aws_common = {
@@ -111,10 +70,21 @@ aws_common = {
 # Note: for all of these, framework_common will be added.
 plugins: Dict[str, Set[str]] = {
     # Source Plugins
-    "kafka": kafka_common,
+    "kafka": set(),  # included by default
     # Action Plugins
     "executor": {
-        "acryl-executor>=0.0.3.6",
+        "acryl-executor==0.0.3.12",
+    },
+    "slack": {
+        "slack-bolt>=1.15.5",
+    },
+    "teams": {
+        "pymsteams >=0.2.2",
+    },
+    "tag_propagation": set(),
+    "term_propagation": set(),
+    "snowflake_tag_propagation": {
+        f"acryl-datahub[snowflake]>={acryl_datahub_min_version}"
     }
     # Transformer Plugins (None yet)
 }
@@ -147,7 +117,7 @@ base_dev_requirements = {
     "flake8>=3.8.3",
     "flake8-tidy-imports>=4.3.0",
     "isort>=5.7.0",
-    "mypy>=0.901,<0.920",
+    "mypy==1.0.0",
     "pytest>=6.2.2",
     "pytest-cov>=2.8.1",
     "pytest-docker>=0.10.3",
@@ -163,6 +133,11 @@ base_dev_requirements = {
         for plugin in [
             "kafka",
             "executor",
+            "slack",
+            "teams",
+            "tag_propagation",
+            "term_propagation",
+            "snowflake_tag_propagation",
         ]
         for dependency in plugins[plugin]
     ),
@@ -178,6 +153,11 @@ full_test_dev_requirements = {
         for plugin in [
             "kafka",
             "executor",
+            "slack",
+            "teams",
+            "tag_propagation",
+            "term_propagation",
+            "snowflake_tag_propagation",
         ]
         for dependency in plugins[plugin]
     ),
@@ -187,10 +167,17 @@ entry_points = {
     "console_scripts": ["datahub-actions = datahub_actions.entrypoints:main"],
     "datahub_actions.action.plugins": [
         "executor = datahub_actions.plugin.action.execution.executor_action:ExecutorAction",
+        "slack = datahub_actions.plugin.action.slack.slack:SlackNotificationAction",
+        "teams = datahub_actions.plugin.action.teams.teams:TeamsNotificationAction",
+        "metadata_change_sync = datahub_actions.plugin.action.metadata_change_sync.metadata_change_sync:MetadataChangeSyncAction",
+        "tag_propagation = datahub_actions.plugin.action.tag.tag_propagation_action:TagPropagationAction",
+        "term_propagation = datahub_actions.plugin.action.term.term_propagation_action:TermPropagationAction",
+        "snowflake_tag_propagation = datahub_actions.plugin.action.snowflake.tag_propagator:SnowflakeTagPropagatorAction",
     ],
     "datahub_actions.transformer.plugins": [],
     "datahub_actions.source.plugins": [],
 }
+
 
 setuptools.setup(
     # Package metadata.
@@ -211,10 +198,10 @@ setuptools.setup(
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Intended Audience :: Developers",
         "Intended Audience :: Information Technology",
         "Intended Audience :: System Administrators",
@@ -228,7 +215,7 @@ setuptools.setup(
     ],
     # Package info.
     zip_safe=False,
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     package_dir={"": "src"},
     packages=setuptools.find_namespace_packages(where="./src"),
     package_data={

@@ -33,7 +33,6 @@ from pyspark.sql.types import (
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.ingestion.extractor import schema_util
-from datahub.ingestion.source.hdfs.utils import infer_partition, parse_config
 from datahub.metadata.com.linkedin.pegasus2avro.schema import (
     BooleanTypeClass,
     BytesTypeClass,

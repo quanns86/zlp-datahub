@@ -25,7 +25,6 @@ from tests.unit.test_helpers import TestAction, TestEventSource, TestTransformer
 
 
 def test_create():
-
     # Test successfully pipeline creation.
     valid_config = _build_valid_pipeline_config()
     valid_pipeline = Pipeline.create(valid_config)
@@ -33,13 +32,13 @@ def test_create():
     # Validate Pipeline is initialized
     assert valid_pipeline.name is not None
     assert valid_pipeline.source is not None
-    assert type(valid_pipeline.source) == TestEventSource
+    assert isinstance(valid_pipeline.source, TestEventSource)
     assert valid_pipeline.transforms is not None
     assert len(valid_pipeline.transforms) == 2  # Filter + Custom
-    assert type(valid_pipeline.transforms[0]) == FilterTransformer
-    assert type(valid_pipeline.transforms[1]) == TestTransformer
+    assert isinstance(valid_pipeline.transforms[0], FilterTransformer)
+    assert isinstance(valid_pipeline.transforms[1], TestTransformer)
     assert valid_pipeline.action is not None
-    assert type(valid_pipeline.action) == TestAction
+    assert isinstance(valid_pipeline.action, TestAction)
     assert valid_pipeline._shutdown is False
     assert valid_pipeline._stats is not None
     assert valid_pipeline._retry_count == 3
@@ -106,7 +105,8 @@ def test_stop():
     stopable_pipeline = Pipeline.create(stoppable_pipeline_config)
 
     # Start in async mode.
-    stopable_pipeline.start()
+    # TODO: This test should be rewritten to use async correctly, needs type ignore
+    stopable_pipeline.start()  # type: ignore
 
     # Stop the pipeline.
     stopable_pipeline.stop()

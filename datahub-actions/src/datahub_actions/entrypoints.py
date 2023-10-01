@@ -13,13 +13,12 @@
 # limitations under the License.
 
 import logging
-import os
 import platform
 import sys
 
 import click
 import stackprinter
-from datahub.configuration import SensitiveError
+from datahub.cli.cli_utils import get_boolean_env_variable
 from prometheus_client import start_http_server
 
 import datahub_actions as datahub_package
@@ -96,7 +95,7 @@ def datahub_actions(
     # 3. Turn off propagation to the root handler.
     datahub_logger.propagate = False
     # 4. Adjust log-levels.
-    if debug or os.getenv("DATAHUB_DEBUG", False):
+    if debug or get_boolean_env_variable("DATAHUB_DEBUG", False):
         logging.getLogger().setLevel(logging.INFO)
         datahub_logger.setLevel(logging.DEBUG)
     else:
@@ -120,19 +119,13 @@ def main(**kwargs):
         error.show()
         sys.exit(1)
     except Exception as exc:
-        kwargs = {}
-        sensitive_cause = SensitiveError.get_sensitive_cause(exc)
-        if sensitive_cause:
-            kwargs = {"show_vals": None}
-            exc = sensitive_cause
-
         logger.error(
             stackprinter.format(
                 exc,
                 line_wrap=MAX_CONTENT_WIDTH,
                 truncate_vals=10 * MAX_CONTENT_WIDTH,
                 suppressed_paths=[r"lib/python.*/site-packages/click/"],
-                **kwargs,
+                show_vals=False,
             )
         )
         logger.info(
