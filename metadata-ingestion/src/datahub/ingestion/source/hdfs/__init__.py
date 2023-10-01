@@ -4,12 +4,7 @@ import os
 import socket
 from datetime import datetime
 from enum import Enum
-from typing import (
-    Iterable,
-    List,
-    Optional,
-    Union,
-)
+from typing import Iterable, List, Optional, Union, Dict
 
 from pyspark.conf import SparkConf
 from pyspark.sql import SparkSession
@@ -234,7 +229,6 @@ class HDFSSource(StatefulIngestionSourceBase):
 
     def read_file(self, files_to_infer: List[str]) -> Optional[DataFrame]:
         extension = self.source_config.format
-
         if extension == "parquet":
             df = self.spark.read.option("mergeSchema", "true").parquet(*files_to_infer)
         elif extension == "csv":
@@ -290,9 +284,8 @@ class HDFSSource(StatefulIngestionSourceBase):
     ) -> Iterable[MetadataWorkUnit]:
         table_name = kwargs.get("table_name")
         is_delta = kwargs.get("is_delta")
-        dataset_urn = make_dataset_urn(
-            self.platform, table_name, self.source_config.env
-        )
+        platform = self.platform if not is_delta else "delta-lake"
+        dataset_urn = make_dataset_urn(platform, table_name, self.source_config.env)
 
         dataset_snapshot = DatasetSnapshot(
             urn=dataset_urn,
@@ -320,8 +313,6 @@ class HDFSSource(StatefulIngestionSourceBase):
             ]
         ]
         column_fields = list(itertools.chain(*column_fields))
-
-        platform = self.platform if not is_delta else "delta"
 
         schema_metadata = SchemaMetadata(
             schemaName=table_name,
@@ -367,6 +358,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             dataframe=table,
             table_name=table_name,
             properties=kwargs.get("properties", {}),
+            is_delta=is_delta,
         )
 
     def get_relative_path_from_hadoop_host(self, path: str) -> str:
@@ -417,6 +409,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             if not is_invalid_path(path):
                 folder_to_track.append(path)
         # Iterate, using stack to check for actual path
+
         while len(folder_to_track) > 0:
             has_subdirectories = False
             to_check = folder_to_track.pop()
@@ -426,12 +419,6 @@ class HDFSSource(StatefulIngestionSourceBase):
                 file = files.next()
                 path = str(file.getPath())
                 path_rel = self.get_relative_path_from_hadoop_host(path)
-
-                if "_delta_log" in rel_path:
-                    for idx, path in enumerate(folder_paths):
-                        if "_delta_log" in path:
-                            folder_paths[idx] = {"path": rel_path, "is_delta": True}
-                    continue
 
                 # If nested folder doesn't belong to partition type folder and doesn't contain invalid keyword -> push to stack to check later
                 if (
@@ -458,11 +445,31 @@ class HDFSSource(StatefulIngestionSourceBase):
             for dir in raw_input:
                 accumulated_directory_paths.extend(self._gen_directories_recursive(dir))
         else:
-            accumulated_directory_paths = raw_input.copy()
+            accumulated_directory_paths = [
+                {"path": dir_, "is_delta": False} for dir_ in raw_input.copy()
+            ]
+
+        accumulated_directory_paths = self.is_delta(accumulated_directory_paths)
         self.hdfs_report.report_warning(
             "ready-to-be-ingested", accumulated_directory_paths
         )
         return accumulated_directory_paths
+
+    def is_delta(self, paths: List[str]) -> List[Dict[str, str]]:
+        new_paths = []
+        for dir_ in paths:
+            path = dir_.get("path")
+            file_iterator = self.fs.listLocatedStatus(self.Path(path))
+            is_delta = False
+            while file_iterator.hasNext():
+                cur_path = str(file_iterator.next().getPath())
+                if "_delta_log" in cur_path:
+                    new_paths.append({"path": path, "is_delta": True})
+                    is_delta = True
+                    break
+            if not is_delta:
+                new_paths.append(dir_)
+        return new_paths
 
     def loop_partitions(self, directory):
         files_to_infer = []
@@ -509,7 +516,7 @@ class HDFSSource(StatefulIngestionSourceBase):
         tracked_schema = []
         yield from self.gen_database_containers()
         for directory_ in self.get_directories_to_check():
-            directory = directory_.get("directory")
+            directory = directory_.get("path")
             is_delta = directory_.get("is_delta")
             if self.source_config.schema_pattern.allowed(directory):
                 try:

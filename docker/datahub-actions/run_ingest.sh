@@ -14,7 +14,6 @@ report_file="$6"
 debug_mode="$7"
 
 # Execute DataHub recipe, based on the recipe id.
-export JAVA_HOME=/home/datahub/.sdkman/candidates/java/current
 echo "datahub ingest run -c ${recipe_file}"
 if (datahub ingest run -c "${recipe_file}"); then
   exit 0
