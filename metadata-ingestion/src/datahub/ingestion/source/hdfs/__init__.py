@@ -432,7 +432,7 @@ class HDFSSource(StatefulIngestionSourceBase):
                 if (
                     not has_subdirectories
                     and not is_invalid_path(rel_path)
-                    and rel_path not in folder_paths
+                    and rel_path not in list(map(lambda x: x.get('path'), folder_paths))
                 ):
                     folder_paths.append({"path": rel_path, "is_delta": False})
 
