@@ -435,7 +435,6 @@ class HDFSSource(StatefulIngestionSourceBase):
                     and rel_path not in list(map(lambda x: x.get('path'), folder_paths))
                 ):
                     folder_paths.append({"path": rel_path, "is_delta": False})
-
         return folder_paths
 
     def get_directories_to_check(self) -> List[str]:
