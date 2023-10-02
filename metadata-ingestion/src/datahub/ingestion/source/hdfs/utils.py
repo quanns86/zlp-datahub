@@ -157,7 +157,7 @@ def is_invalid_path(path: str) -> bool:
     Returns:
         bool: whether path is invalid
     """
-    kws = ["__HIVE_DEFAULT_PARTITION__", "_SUCCESS"]
+    kws = ["__HIVE_DEFAULT_PARTITION__", "_SUCCESS", "_delta_log"]
     return any([kw in path for kw in kws])
 
 
