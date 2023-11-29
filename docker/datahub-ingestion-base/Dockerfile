@@ -81,7 +81,6 @@ RUN if [ $(arch) = "x86_64" ]; then \
 FROM ${BASE_IMAGE} as slim-install
 # Do nothing else on top of base
 
-
 FROM ${APP_ENV}-install
 
 USER datahub
