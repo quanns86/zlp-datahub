@@ -12,7 +12,7 @@ WORKDIR /go/src/github.com/jwilder/dockerize
 
 RUN go install github.com/jwilder/dockerize@$DOCKERIZE_VERSION
 
-FROM python:3.10 as base
+FROM python:3.7 as base
 
 ENV LIBRDKAFKA_VERSION=1.6.2
 ENV CONFLUENT_KAFKA_VERSION=1.6.1
