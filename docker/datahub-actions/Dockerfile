@@ -21,6 +21,24 @@ FROM $BASE_IMAGE:$DOCKER_VERSION as prod-install
 USER root
 COPY datahub-actions /actions-src
 RUN mkdir -p /etc/datahub/actions && mkdir -p /tmp/datahub/logs/actions/system
+
+# Install miniconda and init it immediately
+RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-py39_4.10.3-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+  /bin/bash /tmp/miniconda.sh -b -p /opt/conda && \
+  rm /tmp/miniconda.sh && \
+  /opt/conda/bin/conda clean -tipsy && \
+  ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+  echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
+  echo "conda activate base" >> ~/.bashrc
+
+# Create python 3.7 environment
+RUN /opt/conda/bin/conda create -y --name py37 python=3.7 && \
+  /opt/conda/bin/conda clean -ya
+
+# Activaate env
+ENV PATH /opt/conda/envs/py37/bin:$PATH
+RUN echo "source activate py37" > ~/.bashrc
+
 RUN cd /actions-src && \
   pip install "." && \
   pip install '.[all]' && \
