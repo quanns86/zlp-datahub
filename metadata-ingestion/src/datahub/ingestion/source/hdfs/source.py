@@ -60,6 +60,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 @platform_name("HDFS", id="hdfs")
 @config_class(HDFSSourceConfig)
 @support_status(SupportStatus.CERTIFIED)
+@capability(SourceCapability.DATA_PROFILING, "Optionally enabled via configuration")
 @capability(
     SourceCapability.DELETION_DETECTION,
     "Optionally enabled via `stateful_ingestion.remove_stale_metadata`",
@@ -93,6 +94,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             )
 
     def init_spark(self):
+        import pydeequ
 
         conf = SparkConf()
         conf.set(
@@ -279,7 +281,6 @@ class HDFSSource(StatefulIngestionSourceBase):
                 )
                 aspects.append(schema_metadata)
             except Exception as e:
-                raise (e)
                 logger.error(
                     "Failed to get schema for %s, the error was %s", folder.path, e
                 )
@@ -308,9 +309,10 @@ class HDFSSource(StatefulIngestionSourceBase):
                     domain_urn=domain_urn,
                 )
 
-            yield from self.get_table_profile(folder, dataset_urn)
+            if self.source_config.profile_patterns.allowed(folder.path):
+                yield from self.get_table_profile(folder, dataset_urn)
         else:
-            self.report.report_warning(folder.path, "No files to infer")
+            self.report.report_warning(folder.path, f"No files to infer")
 
     def get_workunits_internal(self) -> Iterable[MetadataWorkUnit]:
         self.container_WU_creator = ContainerWUCreator(
@@ -325,7 +327,10 @@ class HDFSSource(StatefulIngestionSourceBase):
                 for folder in self.hdfs_fs_utils.generate_directories(
                     location, folders_tracked
                 ):
-                    self.hdfs_fs_utils.generate_folder_to_scan(folder, folders_tracked)
+                    if self.source_config.schema_pattern.allowed(folder["path"]):
+                        self.hdfs_fs_utils.generate_folder_to_scan(
+                            folder, folders_tracked
+                        )
             self.hdfs_fs_utils.mark_delta(folders_tracked)
 
             for folder in folders_tracked:

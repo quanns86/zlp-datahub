@@ -74,6 +74,8 @@ _spark_str_to_spark_type = {
 
 DELTA_PATTERN = "/_delta_log"
 _COMPLEX_TYPE = re.compile("^(struct|map|array|uniontype)")
+
+
 class FolderToScan:
     path: str
     owner: str
@@ -103,7 +105,7 @@ class FolderToScan:
 
     def __repr__(self) -> str:
         return f"FolderToScan(path={self.path}, owner={self.owner}, partition_path={self.partition_path}, is_delta={self.is_delta}, files={self.files}), folder_to_profile={self.folder_to_profile}"
-
+    
 class HdfsFileSystemUtils:
     spark: SparkSession
     hadoop_host: str
@@ -166,7 +168,7 @@ class HdfsFileSystemUtils:
         tracked_formats = []
         non_partitions = []
         partitions = []
-        has_partition_pattern = re.compile("^[^0-9]+[0-9_-]+$")
+        has_partition_pattern = re.compile("^[^0-9]*[0-9_-]+$")
         for item in path.split("/"):
             if has_partition_pattern.search(item):
                 for date_format in date_formats:
@@ -248,6 +250,7 @@ class HdfsFileSystemUtils:
                             )
                         )
                     )
+                    logger.info(f"Ready to ingest {root_path}")
                     folders_to_scan.append(
                         FolderToScan(
                             path=root_path,
@@ -287,6 +290,7 @@ class HdfsFileSystemUtils:
                 for f in children:
                     self.generate_folder_to_scan(f, folders_to_scan)
             else:
+                logger.info(f"Ready to ingest {path}")
                 folders_to_scan.append(
                     FolderToScan(
                         path=path,

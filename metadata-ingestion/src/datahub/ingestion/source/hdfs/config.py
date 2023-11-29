@@ -1,4 +1,3 @@
-import logging
 from typing import Dict, List, Optional
 
 from pydantic.fields import Field
@@ -13,7 +12,6 @@ from datahub.ingestion.source.state.stateful_ingestion_base import (
     StatefulIngestionConfigBase,
 )
 
-import logging
 from typing import Dict, List, Optional
 
 from datahub.configuration.common import AllowDenyPattern
@@ -25,10 +23,8 @@ from datahub.ingestion.source.state.stateful_ingestion_base import (
     StatefulIngestionConfigBase,
 )
 from pydantic.fields import Field
+import os
 
-# hide annoying debug errors from py4j
-logging.getLogger("py4j").setLevel(logging.ERROR)
-logger: logging.Logger = logging.getLogger(__name__)
 
 
 class HDFSSourceConfig(StatefulIngestionConfigBase, DatasetSourceConfigMixin):
@@ -47,10 +43,25 @@ class HDFSSourceConfig(StatefulIngestionConfigBase, DatasetSourceConfigMixin):
         default="",
         description="",
     )
+    profile_patterns: AllowDenyPattern = Field(
+        default=AllowDenyPattern.allow_all(),
+        description="regex patterns for tables to profile ",
+    )
     profiling: DataLakeProfilerConfig = Field(
         default=DataLakeProfilerConfig(), description="Data profiling configuration"
     )
-    spark_config = Field(default={})
+    spark_config = Field(
+        default={
+            "spark.master": f'{os.environ.get("SPARK_MASTER")}',
+            "spark.driver.host": os.environ.get("SPARK_DRIVER"),
+            "spark.submit.deployMode": "client",
+            "spark.executor.memory": "5g",
+            "spark.driver.memory": "4g",
+            "spark.executor.cores": 2,
+            "spark.cores.max": 8,
+        },
+        description="Spark config",
+    )
     hadoop_host: str = Field(
         default="localhost",
         description="The host of the hadoop cluster.",
