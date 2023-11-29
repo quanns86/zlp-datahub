@@ -59,7 +59,7 @@ class HDFSSourceConfig(StatefulIngestionConfigBase, DatasetSourceConfigMixin):
             "spark.driver.memory": "4g",
             "spark.executor.cores": 2,
             "spark.cores.max": 8,
-            "spark.jars": f"{os.environ['SPARK_HOME']}/thirdparty_jars",
+            "spark.jars": f"{os.environ['SPARK_HOME']}/thirdparty_jars/{os.environ['JAR_NAME']}",
         },
         description="Spark config",
     )

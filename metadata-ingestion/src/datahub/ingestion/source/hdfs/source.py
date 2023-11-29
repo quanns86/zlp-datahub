@@ -94,7 +94,6 @@ class HDFSSource(StatefulIngestionSourceBase):
             )
 
     def init_spark(self):
-        import pydeequ
 
         conf = SparkConf()
         conf.set(

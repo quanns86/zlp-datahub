@@ -45,6 +45,7 @@ from pyspark.sql.types import (
     StructType,
     TimestampType,
 )
+import logging
 
 
 _field_type_mapping = {
@@ -75,6 +76,9 @@ _spark_str_to_spark_type = {
 DELTA_PATTERN = "/_delta_log"
 _COMPLEX_TYPE = re.compile("^(struct|map|array|uniontype)")
 
+# hide annoying debug errors from py4j
+logging.getLogger("py4j").setLevel(logging.ERROR)
+logger: logging.Logger = logging.getLogger(__name__)
 
 class FolderToScan:
     path: str
