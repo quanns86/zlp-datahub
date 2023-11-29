@@ -16,7 +16,6 @@ FROM python:3.7 as base
 
 ENV LIBRDKAFKA_VERSION=1.6.2
 ENV CONFLUENT_KAFKA_VERSION=1.6.1
-
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update && apt-get install -y -qq \
