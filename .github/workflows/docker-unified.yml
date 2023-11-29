@@ -32,7 +32,7 @@ env:
   DATAHUB_ELASTIC_SETUP_IMAGE: "phuchung276/datahub-elasticsearch-setup"
   DATAHUB_MYSQL_SETUP_IMAGE: "phuchung276/datahub-mysql-setup"
   DATAHUB_UPGRADE_IMAGE: "phuchung276/datahub-upgrade"
-  DATAHUB_INGESTION_BASE_IMAGE: "acryldata/datahub-ingestion-base"
+  DATAHUB_INGESTION_BASE_IMAGE: "phuchung276/datahub-ingestion-base"
   DATAHUB_INGESTION_IMAGE: "phuchung276/datahub-ingestion"
 
 jobs:
@@ -119,13 +119,46 @@ jobs:
   #         context: .
   #         file: ./docker/datahub-actions/Dockerfile
   #         platforms: linux/amd64,linux/arm64
-  datahub_ingestion_full_build:
+  datahub_ingestion_base:
     name: Build and Push DataHub Ingestion (Full) Docker Images
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       needs_artifact_download: ${{ (steps.filter.outputs.datahub-ingestion-base == 'true' || steps.filter.outputs.datahub-ingestion == 'true') && needs.setup.outputs.publish != 'true' }}
     needs: [setup]
+    steps:
+      - name: Check out the repo
+        uses: hsheth2/sane-checkout-action@v1
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            datahub-ingestion-base:
+              - 'docker/datahub-ingestion-base/**'
+      - name: Build and push Base Image
+        if: ${{ steps.filter.outputs.datahub-ingestion-base == 'true' }}
+        uses: ./.github/actions/docker-custom-build-and-push
+        with:
+          target: base
+          images: |
+            ${{ env.DATAHUB_INGESTION_BASE_IMAGE }}
+          tags: ${{ needs.setup.outputs.tag }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          publish: ${{ needs.setup.outputs.publish }}
+          context: .
+          file: ./docker/datahub-ingestion-base/Dockerfile
+          platforms: linux/amd64,linux/arm64/v8
+      - name: Compute DataHub Ingestion (Base) Tag
+        id: tag
+        run: echo "tag=${{ steps.filter.outputs.datahub-ingestion-base == 'true' && needs.setup.outputs.unique_tag || 'head' }}" >> $GITHUB_OUTPUT
+  datahub_ingestion_full_build:
+    name: Build and Push DataHub Ingestion (Full) Docker Images
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      needs_artifact_download: ${{ (steps.filter.outputs.datahub-ingestion-base == 'true' || steps.filter.outputs.datahub-ingestion == 'true') && needs.setup.outputs.publish != 'true' }}
+    needs: [setup, datahub_ingestion_base]
     steps:
       - name: Check out the repo
         uses: actions/checkout@v3
