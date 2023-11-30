@@ -26,7 +26,6 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh 
     bash /tmp/miniconda.sh -b -p /opt/miniconda && \
     rm /tmp/miniconda.sh
 ENV PATH="/opt/miniconda/bin:$PATH"
-
 RUN conda create --name py37 python=3.7 -y
 # Create python3.7 env using miniconda
 
