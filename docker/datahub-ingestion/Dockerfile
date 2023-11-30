@@ -21,6 +21,7 @@ ENV PATH="/datahub-ingestion/.local/bin:$PATH"
 
 FROM base as base-miniconda
 USER 0
+
 RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
     bash /tmp/miniconda.sh -b -p /opt/miniconda && \
     rm /tmp/miniconda.sh
