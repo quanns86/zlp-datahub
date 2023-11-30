@@ -24,8 +24,7 @@ RUN sed -i.bak "s/__version__ = \"1!0.0.0.dev0\"/__version__ = \"$RELEASE_VERSIO
 COPY --from=base-miniconda /opt/conda /opt/conda
 
 USER datahub
-ENV PATH="/opt/conda/bin:/datahub-ingestion/.local/bin:$PATH"
-RUN echo "source activate py37" >> ~/.bashrc
+ENV PATH="/opt/conda/bin:$PATH"
 
 # Create python3.7 env using miniconda
 
@@ -33,7 +32,9 @@ FROM base as slim-install
 RUN pip install --no-cache --user ".[base,datahub-rest,datahub-kafka,snowflake,bigquery,redshift,mysql,postgres,hive,clickhouse,glue,dbt,looker,lookml,tableau,powerbi,superset,datahub-business-glossary]"
 
 FROM base as full-install
-RUN python3 -m pip install --no-cache --user ".[base]" && \
+RUN eval "$(conda shell.bash hook)" && \
+    conda activate py37 && \ 
+    python3 -m pip install --no-cache --user ".[base]" && \
     python3 -m pip install --no-cache --user "./airflow-plugin[acryl-datahub-airflow-plugin]" && \
     python3 -m pip install --no-cache --user ".[all]"
 
