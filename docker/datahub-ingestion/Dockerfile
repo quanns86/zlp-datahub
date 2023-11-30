@@ -26,16 +26,17 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh 
     bash /tmp/miniconda.sh -b -p /opt/miniconda && \
     rm /tmp/miniconda.sh
 ENV PATH="/opt/miniconda/bin:$PATH"
-RUN conda init bash
+RUN eval $(conda shell.bash hook) && \
+    source /opt/miniconda/etc/profile.d/conda.sh
 RUN conda create --name py37 python=3.7 -y
 # Create python3.7 env using miniconda
 
 FROM base-miniconda as slim-install
-RUN source activate py37 && \
+RUN conda activate py37 && \
     pip install --no-cache --user ".[base,datahub-rest,datahub-kafka,snowflake,bigquery,redshift,mysql,postgres,hive,clickhouse,glue,dbt,looker,lookml,tableau,powerbi,superset,datahub-business-glossary]"
 
 FROM base-miniconda as full-install
-RUN source activate py37 && \
+RUN conda activate py37 && \
     pip install --no-cache --user ".[base]" && \
     pip install --no-cache --user "./airflow-plugin[acryl-datahub-airflow-plugin]" && \
     pip install --no-cache --user ".[all]"
