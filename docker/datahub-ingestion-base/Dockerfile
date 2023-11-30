@@ -39,11 +39,6 @@ RUN apt-get update && apt-get install -y -qq \
     && apt-get remove -y make \
     && rm -rf /var/lib/apt/lists/* /var/cache/apk/*
 
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-    bash /tmp/miniconda.sh -b -p /opt/miniconda && \
-    rm /tmp/miniconda.sh
-ENV PATH=/opt/miniconda/bin:$PATH
-
 # compiled against newer golang for security fixes
 COPY --from=dockerize-binary /go/bin/dockerize /usr/local/bin
 
