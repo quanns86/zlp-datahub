@@ -9,8 +9,6 @@ USER 0
 COPY ./metadata-ingestion /datahub-ingestion
 COPY ./metadata-ingestion-modules/airflow-plugin /datahub-ingestion/airflow-plugin
 
-
-
 ARG RELEASE_VERSION
 WORKDIR /datahub-ingestion
 RUN sed -i.bak "s/__version__ = \"1!0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \
@@ -22,7 +20,7 @@ USER datahub
 ENV PATH="/datahub-ingestion/.local/bin:$PATH"
 
 FROM base as base-miniconda
-
+USER 0
 RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
     bash /tmp/miniconda.sh -b -p /opt/miniconda && \
     rm /tmp/miniconda.sh
@@ -30,6 +28,7 @@ ENV PATH=/opt/miniconda/bin:$PATH
 # Create python3.7 env using miniconda
 RUN conda create --name py37 python=3.7 -y \
     && conda activate py37
+USER datahub
 
 FROM base-miniconda as slim-install
 RUN conda activate py37 && \
