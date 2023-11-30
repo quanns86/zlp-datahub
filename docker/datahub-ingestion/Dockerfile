@@ -33,9 +33,9 @@ FROM base as slim-install
 RUN pip install --no-cache --user ".[base,datahub-rest,datahub-kafka,snowflake,bigquery,redshift,mysql,postgres,hive,clickhouse,glue,dbt,looker,lookml,tableau,powerbi,superset,datahub-business-glossary]"
 
 FROM base as full-install
-RUN pip install --no-cache --user ".[base]" && \
-    pip install --no-cache --user "./airflow-plugin[acryl-datahub-airflow-plugin]" && \
-    pip install --no-cache --user ".[all]"
+RUN python3 -m pip install --no-cache --user ".[base]" && \
+    python3 -m pip install --no-cache --user "./airflow-plugin[acryl-datahub-airflow-plugin]" && \
+    python3 -m pip install --no-cache --user ".[all]"
 
 FROM base-miniconda as dev-install
 # Dummy stage for development. Assumes code is built on your machine and mounted to this image.
