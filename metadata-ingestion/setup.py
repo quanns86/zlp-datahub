@@ -292,17 +292,17 @@ plugins: Dict[str, Set[str]] = {
     "sql-parser": sqlglot_lib,
     # Source plugins
     # PyAthena is pinned with exact version because we use private method in PyAthena
-    # "athena": sql_common | {"PyAthena[SQLAlchemy]==2.4.1"},
-    # "azure-ad": set(),
-    # "bigquery": sql_common
-    # | bigquery_common
-    # | {
-    #     # TODO: I doubt we need all three sql parsing libraries.
-    #     *sqllineage_lib,
-    #     *sqlglot_lib,
-    #     "sqlalchemy-bigquery>=1.4.1",
-    #     "google-cloud-datacatalog-lineage==0.2.2",
-    # },
+    "athena": sql_common | {"PyAthena[SQLAlchemy]==2.4.1"},
+    "azure-ad": set(),
+    "bigquery": sql_common
+    | bigquery_common
+    | {
+        # TODO: I doubt we need all three sql parsing libraries.
+        *sqllineage_lib,
+        *sqlglot_lib,
+        "sqlalchemy-bigquery>=1.4.1",
+        "google-cloud-datacatalog-lineage==0.2.2",
+    },
     "clickhouse": sql_common | clickhouse_common,
     "clickhouse-usage": sql_common | usage_common | clickhouse_common,
     "datahub-lineage-file": set(),
