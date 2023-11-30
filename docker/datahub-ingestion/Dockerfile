@@ -32,10 +32,12 @@ RUN conda create --name py37 python=3.7 -y \
     && conda activate py37
 
 FROM base-miniconda as slim-install
-RUN pip install --no-cache --user ".[base,datahub-rest,datahub-kafka,snowflake,bigquery,redshift,mysql,postgres,hive,clickhouse,glue,dbt,looker,lookml,tableau,powerbi,superset,datahub-business-glossary]"
+RUN conda activate py37 && \
+    pip install --no-cache --user ".[base,datahub-rest,datahub-kafka,snowflake,bigquery,redshift,mysql,postgres,hive,clickhouse,glue,dbt,looker,lookml,tableau,powerbi,superset,datahub-business-glossary]"
 
 FROM base-miniconda as full-install
-RUN pip install --no-cache --user ".[base]" && \
+RUN conda activate py37 && \
+    pip install --no-cache --user ".[base]" && \
     pip install --no-cache --user "./airflow-plugin[acryl-datahub-airflow-plugin]" && \
     pip install --no-cache --user ".[all]"
 
