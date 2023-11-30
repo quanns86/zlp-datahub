@@ -27,8 +27,8 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -
     rm /tmp/miniconda.sh
 ENV PATH=/opt/miniconda/bin:$PATH
 # Create python3.7 env using miniconda
-RUN conda create --name py37 python=3.7 -y \
-    && conda activate py37
+RUN conda create --name py37 python=3.7 -y
+RUN conda activate py37
 USER datahub
 
 FROM base-miniconda as slim-install
