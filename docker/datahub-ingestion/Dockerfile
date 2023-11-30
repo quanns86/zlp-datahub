@@ -9,6 +9,10 @@ USER 0
 COPY ./metadata-ingestion /datahub-ingestion
 COPY ./metadata-ingestion-modules/airflow-plugin /datahub-ingestion/airflow-plugin
 
+# Create python3.7 env using miniconda
+RUN conda create --name py37 python=3.7 -y \
+    && conda activate py37
+
 ARG RELEASE_VERSION
 WORKDIR /datahub-ingestion
 RUN sed -i.bak "s/__version__ = \"1!0.0.0.dev0\"/__version__ = \"$RELEASE_VERSION\"/" src/datahub/__init__.py && \

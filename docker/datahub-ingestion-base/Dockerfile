@@ -12,7 +12,7 @@ WORKDIR /go/src/github.com/jwilder/dockerize
 
 RUN go install github.com/jwilder/dockerize@$DOCKERIZE_VERSION
 
-FROM python:3.7 as base
+FROM python:3.10 as base
 
 ENV LIBRDKAFKA_VERSION=1.6.2
 ENV CONFLUENT_KAFKA_VERSION=1.6.1
@@ -38,6 +38,11 @@ RUN apt-get update && apt-get install -y -qq \
     && ./configure --prefix /usr && make && make install && cd .. && rm -rf /root/librdkafka-${LIBRDKAFKA_VERSION} \
     && apt-get remove -y make \
     && rm -rf /var/lib/apt/lists/* /var/cache/apk/*
+
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p /opt/miniconda && \
+    rm /tmp/miniconda.sh
+ENV PATH=/opt/miniconda/bin:$PATH
 
 # compiled against newer golang for security fixes
 COPY --from=dockerize-binary /go/bin/dockerize /usr/local/bin
