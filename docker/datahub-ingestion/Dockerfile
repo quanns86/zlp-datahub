@@ -22,14 +22,13 @@ ENV PATH="/datahub-ingestion/.local/bin:$PATH"
 FROM base as base-miniconda
 USER 0
 
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh -O /tmp/miniconda.sh && \
     bash /tmp/miniconda.sh -b -p /opt/miniconda && \
     rm /tmp/miniconda.sh
-ENV PATH=/opt/miniconda/bin:$PATH
-# Create python3.7 env using miniconda
+ENV PATH="/opt/miniconda/bin:$PATH"
+
 RUN conda create --name py37 python=3.7 -y
-RUN conda activate py37
-USER datahub
+# Create python3.7 env using miniconda
 
 FROM base-miniconda as slim-install
 RUN conda activate py37 && \
