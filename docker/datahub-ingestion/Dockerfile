@@ -38,6 +38,8 @@ RUN eval "$(conda shell.bash hook)" && \
     python3 -m pip install --no-cache --user "./airflow-plugin[acryl-datahub-airflow-plugin]" && \
     python3 -m pip install --no-cache --user ".[all]"
 
+RUN echo "source activate py37" >> ~/.bashrc
+
 FROM base-miniconda as dev-install
 # Dummy stage for development. Assumes code is built on your machine and mounted to this image.
 # See this excellent thread https://github.com/docker/cli/issues/1134
