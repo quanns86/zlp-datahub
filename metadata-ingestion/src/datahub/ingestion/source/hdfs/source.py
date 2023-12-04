@@ -177,53 +177,54 @@ class HDFSSource(StatefulIngestionSourceBase):
             )
             return
 
-        with PerfTimer() as timer:
-            # init PySpark analysåis object
-            logger.debug(
-                f"Profiling {folder.path}: reading file and computing nulls+uniqueness {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-            )
-            table_profiler = _SingleTableProfiler(
-                table,
-                self.spark,
-                self.source_config.profiling,
-                self.report,
-                folder.path,
-            )
+        if self.source_config.profiling.enabled and self.source_config.profile_patterns.allowed(folder.path):
+            with PerfTimer() as timer:
+                # init PySpark analysåis object
+                logger.debug(
+                    f"Profiling {folder.path}: reading file and computing nulls+uniqueness {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                )
+                table_profiler = _SingleTableProfiler(
+                    table,
+                    self.spark,
+                    self.source_config.profiling,
+                    self.report,
+                    folder.path,
+                )
 
-            logger.debug(
-                f"Profiling {folder.path}: preparing profilers to run {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-            )
-            # instead of computing each profile individually, we run them all in a single analyzer.run() call
-            # we use a single call because the analyzer optimizes the number of calls to the underlying profiler
-            # since multiple profiles reuse computations, this saves a lot of time
-            table_profiler.prepare_table_profiles()
+                logger.debug(
+                    f"Profiling {folder.path}: preparing profilers to run {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                )
+                # instead of computing each profile individually, we run them all in a single analyzer.run() call
+                # we use a single call because the analyzer optimizes the number of calls to the underlying profiler
+                # since multiple profiles reuse computations, this saves a lot of time
+                table_profiler.prepare_table_profiles()
 
-            # compute the profiles
-            logger.debug(
-                f"Profiling {folder.path}: computing profiles {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-            )
-            analysis_result = table_profiler.analyzer.run()
-            analysis_metrics = AnalyzerContext.successMetricsAsDataFrame(
-                self.spark, analysis_result
-            )
+                # compute the profiles
+                logger.debug(
+                    f"Profiling {folder.path}: computing profiles {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                )
+                analysis_result = table_profiler.analyzer.run()
+                analysis_metrics = AnalyzerContext.successMetricsAsDataFrame(
+                    self.spark, analysis_result
+                )
 
-            logger.debug(
-                f"Profiling {folder.path}: extracting profiles {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-            )
-            table_profiler.extract_table_profiles(analysis_metrics)
+                logger.debug(
+                    f"Profiling {folder.path}: extracting profiles {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                )
+                table_profiler.extract_table_profiles(analysis_metrics)
 
-            time_taken = timer.elapsed_seconds()
+                time_taken = timer.elapsed_seconds()
 
-            logger.info(
-                f"Finished profiling {folder.path}; took {time_taken:.3f} seconds"
-            )
+                logger.info(
+                    f"Finished profiling {folder.path}; took {time_taken:.3f} seconds"
+                )
 
-            self.profiling_times_taken.append(time_taken)
+                self.profiling_times_taken.append(time_taken)
 
-        yield MetadataChangeProposalWrapper(
-            entityUrn=dataset_urn,
-            aspect=table_profiler.profile,
-        ).as_workunit()
+            yield MetadataChangeProposalWrapper(
+                entityUrn=dataset_urn,
+                aspect=table_profiler.profile,
+            ).as_workunit()
 
     def ingest_table(self, folder: FolderToScan) -> Iterable[MetadataWorkUnit]:
         aspects: List[Optional[_Aspect]] = []

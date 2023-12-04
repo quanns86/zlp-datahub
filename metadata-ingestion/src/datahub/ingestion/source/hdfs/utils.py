@@ -276,6 +276,21 @@ class HdfsFileSystemUtils:
                             ),
                         }
                     )
+            elif f.isFile():
+                root_path = "/".join(path.split("/")[:-1])
+                if not self.check_exists(root_path, folders_to_scan):
+                    logger.info(f"Ready to ingest {root_path}")
+                    folders_to_scan.append(
+                        FolderToScan(
+                            path=root_path,
+                            owner=f.getOwner(),
+                            partition_path="",
+                            is_delta=False,
+                            partitions=[],
+                            files=self.generate_children_files(root_path),
+                            folder_to_profile=f"{self.hadoop_host}/{root_path}",
+                        )
+                    )
         return folders
 
     def mark_delta(self, folders_to_scan: List[FolderToScan]):
