@@ -94,7 +94,6 @@ class HDFSSource(StatefulIngestionSourceBase):
             )
 
     def init_spark(self):
-
         conf = SparkConf()
         conf.set(
             "spark.app.name",
@@ -177,7 +176,10 @@ class HDFSSource(StatefulIngestionSourceBase):
             )
             return
 
-        if self.source_config.profiling.enabled and self.source_config.profile_patterns.allowed(folder.path):
+        if (
+            self.source_config.profiling.enabled
+            and self.source_config.profile_patterns.allowed(folder.path)
+        ):
             with PerfTimer() as timer:
                 # init PySpark analysåis object
                 logger.debug(

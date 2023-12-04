@@ -109,7 +109,7 @@ class FolderToScan:
 
     def __repr__(self) -> str:
         return f"FolderToScan(path={self.path}, owner={self.owner}, partition_path={self.partition_path}, is_delta={self.is_delta}, files={self.files}), folder_to_profile={self.folder_to_profile}"
-    
+
 class HdfsFileSystemUtils:
     spark: SparkSession
     hadoop_host: str
@@ -146,6 +146,7 @@ class HdfsFileSystemUtils:
             ".spark-staging",
             *additional_patterns,
         ]
+
         return all(kw not in path for kw in kws)
 
     def infer_partition(self, path: str) -> str:
@@ -277,8 +278,13 @@ class HdfsFileSystemUtils:
                         }
                     )
             elif f.isFile():
-                root_path = "/".join(path.split("/")[:-1])
-                if not self.check_exists(root_path, folders_to_scan):
+                root_path, partition_path = self.infer_partition(path)
+                root_path = "/".join(root_path.split("/")[:-1])
+                if (
+                    not self.check_exists(root_path, folders_to_scan)
+                    and not partition_path
+                    and self.is_valid_path(path, [DELTA_PATTERN])
+                ):
                     logger.info(f"Ready to ingest {root_path}")
                     folders_to_scan.append(
                         FolderToScan(
@@ -291,6 +297,7 @@ class HdfsFileSystemUtils:
                             folder_to_profile=f"{self.hadoop_host}/{root_path}",
                         )
                     )
+
         return folders
 
     def mark_delta(self, folders_to_scan: List[FolderToScan]):
