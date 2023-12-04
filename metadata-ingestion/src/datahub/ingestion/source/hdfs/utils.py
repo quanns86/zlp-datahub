@@ -144,6 +144,9 @@ class HdfsFileSystemUtils:
             "_SUCCESS",
             "_temporary",
             ".spark-staging",
+            "commits",
+            "_spark_metadata",
+            "checkpoints",
             *additional_patterns,
         ]
 
@@ -203,31 +206,48 @@ class HdfsFileSystemUtils:
     def generate_relative_path(self, file):
         return file.getPath().toUri().getPath()
 
-    def generate_children_folders(self, location: str, ignore_patterns: List[str] = []):
-        files_iterator = self.fs.listLocatedStatus(self.Path(location))
-        folders = []
-        while files_iterator.hasNext():
-            file = files_iterator.next()
-            path = self.generate_relative_path(file)
-            if file.isDirectory() and self.is_valid_path(
-                path, additional_patterns=ignore_patterns
-            ):
-                folders.append(path)
-        return folders
+    def generate_children_folders(
+        self, location: str, ignore_patterns: List[str] = [], recursive: bool = False
+    ):
+        try:
+            files_iterator = self.fs.listLocatedStatus(self.Path(location))
+            folders = []
+            while files_iterator.hasNext():
+                file = files_iterator.next()
+                path = self.generate_relative_path(file)
+                if file.isDirectory() and self.is_valid_path(
+                    path, additional_patterns=ignore_patterns
+                ):
+                    if recursive:
+                        folders.extend(
+                            self.generate_children_folders(path, ignore_patterns)
+                        )
+                    folders.append(path)
+            return folders
+        except Exception as e:
+            logger.debug(e)
+            return []
 
-    def generate_children_files(self, location: str):
-        files_iterator = self.fs.listFiles(self.Path(location), False)
+    def generate_children_files(self, location: str, recursive: bool = False):
+        files_iterator = self.fs.listFiles(self.Path(location), recursive)
         files = []
         while files_iterator.hasNext():
             file = files_iterator.next()
             path = file.getPath().toString()
-            if file.isFile() and self.format in path:
+            if file.isFile() and self.format in path and self.is_valid_path(path):
                 files.append(file.getPath().toString())
                 break
         return files
 
     def truncate_root_path(self, root_path: str, partitions: List[str]):
         return [x.replace(root_path, "").strip("/") for x in partitions]
+
+    def vote_partition_patterns(self, partitions: List[str]):
+        votes = {}
+        for partition in partitions:
+            _, partition_pattern = self.infer_partition(partition)
+            votes[partition_pattern] = votes.get(partition_pattern, 0) + 1
+        return max(votes, key=votes.get)
 
     def generate_directories(
         self, location: str, folders_to_scan: List[FolderToScan]
@@ -237,67 +257,53 @@ class HdfsFileSystemUtils:
         while files_iterator.hasNext():
             f = files_iterator.next()
             path = self.generate_relative_path(f)
-            if (
-                self.is_valid_path(path, [DELTA_PATTERN])
-                and f.isDirectory()
-                and not self.check_exists(path, folders_to_scan)
-            ):
-                root_path, partition_path = self.infer_partition(path)
-                if partition_path:
-                    partitions = self.generate_children_folders(
-                        root_path, [DELTA_PATTERN]
-                    )
-                    files = list(
-                        chain(
-                            *(
-                                self.generate_children_files(folder)
-                                for folder in partitions
+            if self.is_valid_path(path, [DELTA_PATTERN]):
+                if f.isFile():
+                    folder_only = "/".join(path.split("/")[:-1])
+                    base_path, partition_pattern = self.infer_partition(folder_only)
+                    if not self.check_exists(base_path, folders_to_scan):
+                        if partition_pattern:
+                            partitions = self.generate_children_folders(
+                                base_path, [DELTA_PATTERN], True
                             )
-                        )
-                    )
-                    logger.info(f"Ready to ingest {root_path}")
-                    folders_to_scan.append(
-                        FolderToScan(
-                            path=root_path,
-                            owner=f.getOwner(),
-                            partition_path=partition_path,
-                            is_delta=False,
-                            partitions=self.truncate_root_path(root_path, partitions),
-                            files=files,
-                            folder_to_profile=f"{self.hadoop_host}/{partitions[-1]}",
-                        )
-                    )
+                            if len(partitions) > 0:
+                                files = list(
+                                    chain(
+                                        *(
+                                            self.generate_children_files(folder)
+                                            for folder in partitions
+                                        )
+                                    )
+                                )
+                                logger.info(f"Ready to ingest {base_path}")
+                                folders_to_scan.append(
+                                    FolderToScan(
+                                        path=base_path,
+                                        owner=f.getOwner(),
+                                        partition_path=self.vote_partition_patterns(
+                                            partitions
+                                        ),
+                                        is_delta=False,
+                                        files=files,
+                                        partitions=partitions,
+                                        folder_to_profile=f"{self.hadoop_host}/{partitions[-1]}",
+                                    )
+                                )
+                        else:
+                            logger.info(f"Ready to ingest {base_path}")
+                            folders_to_scan.append(
+                                FolderToScan(
+                                    path=base_path,
+                                    owner=f.getOwner(),
+                                    partition_path=partition_pattern,
+                                    is_delta=False,
+                                    files=self.generate_children_files(base_path),
+                                    partitions=[],
+                                    folder_to_profile=f"{self.hadoop_host}/{base_path}",
+                                )
+                            )
                 else:
-                    folders.append(
-                        {
-                            "path": root_path,  # getPath without schema and authority
-                            "owner": f.getOwner(),
-                            "children": self.generate_directories(
-                                path, folders_to_scan
-                            ),
-                        }
-                    )
-            elif f.isFile():
-                root_path, partition_path = self.infer_partition(path)
-                root_path = "/".join(root_path.split("/")[:-1])
-                if (
-                    not self.check_exists(root_path, folders_to_scan)
-                    and not partition_path
-                    and self.is_valid_path(path, [DELTA_PATTERN])
-                ):
-                    logger.info(f"Ready to ingest {root_path}")
-                    folders_to_scan.append(
-                        FolderToScan(
-                            path=root_path,
-                            owner=f.getOwner(),
-                            partition_path="",
-                            is_delta=False,
-                            partitions=[],
-                            files=self.generate_children_files(root_path),
-                            folder_to_profile=f"{self.hadoop_host}/{root_path}",
-                        )
-                    )
-
+                    self.generate_directories(path, folders_to_scan)
         return folders
 
     def mark_delta(self, folders_to_scan: List[FolderToScan]):
@@ -305,29 +311,6 @@ class HdfsFileSystemUtils:
             children_folders = self.generate_children_folders(folder.path)
             if any([DELTA_PATTERN in f for f in children_folders]):
                 folder.is_delta = True
-
-    def generate_folder_to_scan(
-        self, directory: str, folders_to_scan: List[FolderToScan]
-    ) -> List[dict]:
-        path = directory.get("path")
-        children = directory.get("children")
-        if not self.check_exists(path, folders_to_scan):
-            if len(children) > 0:
-                for f in children:
-                    self.generate_folder_to_scan(f, folders_to_scan)
-            else:
-                logger.info(f"Ready to ingest {path}")
-                folders_to_scan.append(
-                    FolderToScan(
-                        path=path,
-                        owner=directory.get("owner"),
-                        partition_path="",
-                        is_delta=False,
-                        partitions=[],
-                        files=self.generate_children_files(path),
-                        folder_to_profile=f"{self.hadoop_host}/{path}",
-                    )
-                )
 
 
 class HdfsUtils:

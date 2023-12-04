@@ -330,9 +330,7 @@ class HDFSSource(StatefulIngestionSourceBase):
                     location, folders_tracked
                 ):
                     if self.source_config.schema_pattern.allowed(folder["path"]):
-                        self.hdfs_fs_utils.generate_folder_to_scan(
-                            folder, folders_tracked
-                        )
+                        self.hdfs_fs_utils.generate_directories(folder, folders_tracked)
             self.hdfs_fs_utils.mark_delta(folders_tracked)
 
             for folder in folders_tracked:
