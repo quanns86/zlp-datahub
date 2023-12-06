@@ -179,6 +179,8 @@ class HdfsFileSystemUtils:
         has_partition_pattern = re.compile("^[^0-9]*[0-9_-]+$")
         for item in path.split("/"):
             if has_partition_pattern.search(item):
+                if "hour=" in item:
+                    continue
                 for date_format in date_formats:
                     try:
                         extracted_date_str = re.sub(r"[a-zA-Z=_]", "", item)
@@ -289,7 +291,9 @@ class HdfsFileSystemUtils:
                                         ),
                                         is_delta=False,
                                         files=files,
-                                        partitions=partitions,
+                                        partitions=self.truncate_root_path(
+                                            base_path, partitions
+                                        ),
                                         folder_to_profile=f"{self.hadoop_host}/{partitions[-1]}",
                                     )
                                 )
