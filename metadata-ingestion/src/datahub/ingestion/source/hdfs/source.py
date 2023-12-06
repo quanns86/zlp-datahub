@@ -3,11 +3,15 @@ import logging
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 
+from pyspark.conf import SparkConf
+from pyspark.sql import SparkSession
+
 from datahub.emitter.mce_builder import (
     make_data_platform_urn,
     make_dataplatform_instance_urn,
     make_dataset_urn,
     make_domain_urn,
+    make_user_urn,
 )
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.emitter.mcp_builder import add_domain_to_entity_wu
@@ -23,7 +27,6 @@ from datahub.ingestion.api.decorators import (
 from datahub.ingestion.api.source import MetadataWorkUnitProcessor
 from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.ingestion.source.data_lake_common.data_lake_utils import ContainerWUCreator
-
 from datahub.ingestion.source.hdfs.config import HDFSSourceConfig
 from datahub.ingestion.source.hdfs.report import HDFSSourceReport
 from datahub.ingestion.source.hdfs.utils import (
@@ -44,13 +47,14 @@ from datahub.metadata.schema_classes import (
     DataPlatformInstanceClass,
     DatasetPropertiesClass,
     OtherSchemaClass,
+    OwnerClass,
+    OwnershipClass,
+    OwnershipTypeClass,
     _Aspect,
 )
+from datahub.telemetry import stats, telemetry
 from datahub.utilities.perf_timer import PerfTimer
 from datahub.utilities.registries.domain_registry import DomainRegistry
-from pyspark.conf import SparkConf
-from pyspark.sql import SparkSession
-from datahub.telemetry import stats, telemetry
 
 # hide annoying debug errors from py4j
 logging.getLogger("py4j").setLevel(logging.ERROR)
@@ -87,6 +91,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             self.spark, self.source_config.hadoop_host, self.source_config.format
         )
         self.profiling_times_taken = []
+        self.graph = ctx.graph
         if self.source_config.domain:
             self.domain_registry = DomainRegistry(
                 cached_domains=[k for k in self.source_config.domain],
@@ -151,13 +156,37 @@ class HDFSSource(StatefulIngestionSourceBase):
 
         return column_fields
 
+    def add_owner(self, dataset_urn: str, owner: str) -> OwnershipClass:
+        assert dataset_urn is not None
+        assert owner is not None
+        ownership_type = OwnershipTypeClass.TECHNICAL_OWNER
+        owner_to_add = make_user_urn(owner)
+        owner_class_to_add = OwnerClass(owner=owner_to_add, type=ownership_type)
+        ownership_to_add = OwnershipClass(owners=[owner_class_to_add])
+
+        current_owners: Optional[OwnershipClass] = self.graph.get_aspect(
+            entity_urn=dataset_urn, aspect_type=OwnershipClass
+        )
+        if current_owners:
+            if (owner_to_add, ownership_type) not in [
+                (x.owner, x.type) for x in current_owners.owners
+            ]:
+                # owners exist, but this owner is not present in the current owners
+                current_owners.owners.append(owner_class_to_add)
+        else:
+            # create a brand new ownership aspect
+            current_owners = ownership_to_add
+
+        return current_owners
+
     def get_table_profile(
         self, folder: FolderToScan, dataset_urn: str
     ) -> Iterable[MetadataWorkUnit]:
         # Importing here to avoid Deequ dependency for non profiling use cases
         # Deequ fails if Spark is not available which is not needed for non profiling use cases
-        from datahub.ingestion.source.s3.profiling import _SingleTableProfiler
         from pydeequ.analyzers import AnalyzerContext
+
+        from datahub.ingestion.source.s3.profiling import _SingleTableProfiler
 
         # read in the whole table with Spark for profiling
         table = None
@@ -288,6 +317,10 @@ class HDFSSource(StatefulIngestionSourceBase):
                 )
                 return
 
+            if folder.owner:
+                ownership_aspect = self.add_owner(dataset_urn, folder.owner)
+                aspects.append(ownership_aspect)
+
             for mcp in MetadataChangeProposalWrapper.construct_many(
                 entityUrn=dataset_urn,
                 aspects=aspects,
@@ -314,7 +347,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             if self.source_config.profile_patterns.allowed(folder.path):
                 yield from self.get_table_profile(folder, dataset_urn)
         else:
-            self.report.report_warning(folder.path, f"No files to infer")
+            self.report.report_warning(folder.path, "No files to infer")
 
     def get_workunits_internal(self) -> Iterable[MetadataWorkUnit]:
         self.container_WU_creator = ContainerWUCreator(

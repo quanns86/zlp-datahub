@@ -1,28 +1,11 @@
 import json
+import logging
 import re
 from datetime import datetime
 from functools import lru_cache
 from itertools import chain
 from typing import Any, List, Optional, Type
 
-from datahub.ingestion.extractor import schema_util
-from datahub.metadata.com.linkedin.pegasus2avro.schema import (
-    BooleanTypeClass,
-    BytesTypeClass,
-    DateTypeClass,
-    MapTypeClass,
-    NullTypeClass,
-    NumberTypeClass,
-    RecordTypeClass,
-    SchemaField,
-    SchemaFieldDataType,
-    StringTypeClass,
-    TimeTypeClass,
-)
-from datahub.metadata.schema_classes import (
-    MapTypeClass,
-)
-from datahub.utilities.hive_schema_to_avro import get_avro_schema_for_hive_column
 from py4j.java_gateway import java_import
 from pyspark.sql import SparkSession
 from pyspark.sql import types as spark_types
@@ -45,8 +28,25 @@ from pyspark.sql.types import (
     StructType,
     TimestampType,
 )
-import logging
 
+from datahub.ingestion.extractor import schema_util
+from datahub.metadata.com.linkedin.pegasus2avro.schema import (
+    BooleanTypeClass,
+    BytesTypeClass,
+    DateTypeClass,
+    MapTypeClass,
+    NullTypeClass,
+    NumberTypeClass,
+    RecordTypeClass,
+    SchemaField,
+    SchemaFieldDataType,
+    StringTypeClass,
+    TimeTypeClass,
+)
+from datahub.metadata.schema_classes import (
+    MapTypeClass,
+)
+from datahub.utilities.hive_schema_to_avro import get_avro_schema_for_hive_column
 
 _field_type_mapping = {
     NullType: NullTypeClass,
@@ -215,14 +215,18 @@ class HdfsFileSystemUtils:
             while files_iterator.hasNext():
                 file = files_iterator.next()
                 path = self.generate_relative_path(file)
-                if file.isDirectory() and self.is_valid_path(
-                    path, additional_patterns=ignore_patterns
-                ):
-                    if recursive:
-                        folders.extend(
-                            self.generate_children_folders(path, ignore_patterns)
-                        )
-                    folders.append(path)
+                if self.is_valid_path(path, additional_patterns=ignore_patterns):
+                    if file.isDirectory():
+                        if recursive:
+                            folders.extend(
+                                self.generate_children_folders(
+                                    path, ignore_patterns, recursive
+                                )
+                            )
+                    else:
+                        folders.append(location)
+                        return folders
+
             return folders
         except Exception as e:
             logger.debug(e)
