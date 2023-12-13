@@ -80,6 +80,7 @@ _COMPLEX_TYPE = re.compile("^(struct|map|array|uniontype)")
 logging.getLogger("py4j").setLevel(logging.ERROR)
 logger: logging.Logger = logging.getLogger(__name__)
 
+
 class FolderToScan:
     path: str
     owner: str
@@ -109,6 +110,7 @@ class FolderToScan:
 
     def __repr__(self) -> str:
         return f"FolderToScan(path={self.path}, owner={self.owner}, partition_path={self.partition_path}, is_delta={self.is_delta}, files={self.files}), folder_to_profile={self.folder_to_profile}"
+
 
 class HdfsFileSystemUtils:
     spark: SparkSession
@@ -225,6 +227,8 @@ class HdfsFileSystemUtils:
                                     path, ignore_patterns, recursive
                                 )
                             )
+                        else:
+                            folders.append(path)
                     else:
                         folders.append(location)
                         return folders
