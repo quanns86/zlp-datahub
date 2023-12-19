@@ -205,7 +205,7 @@ class HdfsFileSystemUtils:
         return "/".join(non_partitions), "/".join(partitions)
 
     def check_exists(self, path: str, folders_to_scan):
-        return any(p.path in path for p in folders_to_scan)
+        return any(p.path == path for p in folders_to_scan)
 
     def generate_relative_path(self, file):
         return file.getPath().toUri().getPath()

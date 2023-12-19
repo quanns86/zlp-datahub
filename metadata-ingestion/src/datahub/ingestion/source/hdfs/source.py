@@ -184,9 +184,8 @@ class HDFSSource(StatefulIngestionSourceBase):
     ) -> Iterable[MetadataWorkUnit]:
         # Importing here to avoid Deequ dependency for non profiling use cases
         # Deequ fails if Spark is not available which is not needed for non profiling use cases
-        from pydeequ.analyzers import AnalyzerContext
-
         from datahub.ingestion.source.s3.profiling import _SingleTableProfiler
+        from pydeequ.analyzers import AnalyzerContext
 
         # read in the whole table with Spark for profiling
         table = None
@@ -264,7 +263,7 @@ class HDFSSource(StatefulIngestionSourceBase):
         data_name = ".".join(browse_path.split("/"))
         data_platform_urn = make_data_platform_urn(self.source_config.platform)
         logger.info("Creating dataset urn with name: %s", browse_path)
-        platform = self.source_config.platform if not folder.is_delta else "delta-lake"
+        platform = self.source_config.platform
 
         self.container_WU_creator.platform = platform
         dataset_urn = make_dataset_urn(
@@ -285,7 +284,7 @@ class HDFSSource(StatefulIngestionSourceBase):
         customProperties = {
             "database": self.source_config.database,
             "db_host": self.source_config.db_host,
-            "format": self.source_config.format,
+            "format": "delta" if folder.is_delta else self.source_config.format,
             "location": folder.path,
             "is_partition": is_partition,
             "partition_by": folder.partition_path,
@@ -347,7 +346,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             if self.source_config.profile_patterns.allowed(folder.path):
                 yield from self.get_table_profile(folder, dataset_urn)
         else:
-            self.report.report_warning(folder.path, "No files to infer")
+            self.report.report_warning(folder.path, f"No files to infer")
 
     def get_workunits_internal(self) -> Iterable[MetadataWorkUnit]:
         self.container_WU_creator = ContainerWUCreator(
