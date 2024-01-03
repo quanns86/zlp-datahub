@@ -290,7 +290,7 @@ class HDFSSource(StatefulIngestionSourceBase):
             "partition_by": folder.partition_path,
             "is_time_range_required": is_partition,
             "is_metadata_embedded": "True",
-            "partitions": " ".join(folder.partitions),
+            # "partitions": " ".join(folder.partitions),
         }
         dataset_properties = DatasetPropertiesClass(
             description="",
