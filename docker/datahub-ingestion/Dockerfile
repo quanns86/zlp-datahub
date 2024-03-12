@@ -26,6 +26,7 @@ COPY --from=base-miniconda /opt/conda /opt/conda
 USER datahub
 ENV PATH="/opt/conda/bin:$PATH"
 
+
 # Create python3.7 env using miniconda
 
 FROM base as slim-install
