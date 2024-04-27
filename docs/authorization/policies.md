@@ -94,25 +94,29 @@ We currently support the following:
 
 **Common metadata privileges** to view & modify any entity within DataHub.
 
-| Common Privileges                | Description                                                                                                                                                  |
-|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| View Entity Page                 | Allow actor to access the entity page for the resource in the UI. If not granted, it will redirect them to an unauthorized page.                             |
-| Edit Tags                        | Allow actor to add and remove tags to an asset.                                                                                                              |
-| Edit Glossary Terms              | Allow actor to add and remove glossary terms to an asset.                                                                                                    |
-| Edit Owners                      | Allow actor to add and remove owners of an entity.                                                                                                           |
-| Edit Description                 | Allow actor to edit the description (documentation) of an entity.                                                                                            |
-| Edit Links                       | Allow actor to edit links associated with an entity.                                                                                                         |
-| Edit Status                      | Allow actor to edit the status of an entity (soft deleted or not).                                                                                           |
-| Edit Domain                      | Allow actor to edit the Domain of an entity.                                                                                                                 |
-| Edit Deprecation                 | Allow actor to edit the Deprecation status of an entity.                                                                                                     |
-| Edit Assertions                  | Allow actor to add and remove assertions from an entity.                                                                                                     |
-| Edit All                         | Allow actor to edit any information about an entity. Super user privileges. Controls the ability to ingest using API when REST API Authorization is enabled. |                                                    |
-| Get Timeline API[^1]             | Allow actor to get the timeline of an entity via API.                                                                                                        |
-| Get Entity API[^1]               | Allow actor to get an entity via API.                                                                                                                        |
-| Get Timeseries Aspect API[^1]    | Allow actor to get a timeseries aspect via API.                                                                                                              |
-| Get Aspect/Entity Count APIs[^1] | Allow actor to get aspect and entity counts via API.                                                                                                         |
-| Search API[^1]                   | Allow actor to search for entities via API.                                                                                                                  |
-| Produce Platform Event API[^1]   | Allow actor to ingest a platform event via API.                                                                                                              |
+| Common Privileges                   | Description                                                                                                                                                                                                                                   |
+|-------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| View Entity Page                    | Allow actor to access the entity page for the resource in the UI. If not granted, it will redirect them to an unauthorized page. Additionally if the actor does not have this view privilege, the entity will be removed from search results. |
+| Edit Tags                           | Allow actor to add and remove tags to an asset.                                                                                                                                                                                               |
+| Edit Glossary Terms                 | Allow actor to add and remove glossary terms to an asset.                                                                                                                                                                                     |
+| Edit Owners                         | Allow actor to add and remove owners of an entity.                                                                                                                                                                                            |
+| Edit Description                    | Allow actor to edit the description (documentation) of an entity.                                                                                                                                                                             |
+| Edit Links                          | Allow actor to edit links associated with an entity.                                                                                                                                                                                          |
+| Edit Status                         | Allow actor to edit the status of an entity (soft deleted or not).                                                                                                                                                                            |
+| Edit Domain                         | Allow actor to edit the Domain of an entity.                                                                                                                                                                                                  |
+| Edit Deprecation                    | Allow actor to edit the Deprecation status of an entity.                                                                                                                                                                                      |
+| Edit Assertions                     | Allow actor to add and remove assertions from an entity.                                                                                                                                                                                      |
+| Edit Incidents                      | Allow actor to raise and resolve incidents for an entity.                                                                                                                                                                                     |
+| Edit All                            | Allow actor to edit any information about an entity. Super user privileges. Controls the ability to ingest using API when REST API Authorization is enabled.                                                                                  |
+| Get Timeline API[^1]                | Allow actor to get the timeline of an entity via API.                                                                                                                                                                                         |
+| Get Entity API[^1]                  | Allow actor to get an entity via API.                                                                                                                                                                                                         |
+| Get Timeseries Aspect API[^1]       | Allow actor to get a timeseries aspect via API.                                                                                                                                                                                               |
+| Get Aspect/Entity Count APIs[^1]    | Allow actor to get aspect and entity counts via API.                                                                                                                                                                                          |
+| Search API[^1]                      | Allow actor to search for entities via API.                                                                                                                                                                                                   |
+| Produce Platform Event API[^1]      | Allow actor to ingest a platform event via API.                                                                                                                                                                                               |
+| Explain ElasticSearch Query API[^1] | Allow actor to explain an ElasticSearch query.                                                                                                                                                                                                |
+| Create Entity                       | Allow creation of the entity if it doesn't already exist.                                                                                                                                                                                     |
+| Entity Exists                       | Allow checking the existence of the entity without any additional access to the entity's data.                                                                                                                                                |
 
 [^1]: Only active if REST_API_AUTHORIZATION_ENABLED is true
 
@@ -137,7 +141,7 @@ We currently support the following:
 #### Resources
 
 Resource filter defines the set of resources that the policy applies to is defined using a list of criteria. Each
-criterion defines a field type (like resource_type, resource_urn, domain), a list of field values to compare, and a
+criterion defines a field type (like type, urn, domain), a list of field values to compare, and a
 condition (like EQUALS). It essentially checks whether the field of a certain resource matches any of the input values.
 Note, that if there are no criteria or resource is not set, policy is applied to ALL resources.
 
@@ -149,7 +153,7 @@ For example, the following resource filter will apply the policy to datasets, ch
       "filter": {
         "criteria": [
           {
-            "field": "RESOURCE_TYPE",
+            "field": "TYPE",
             "condition": "EQUALS",
             "values": [
               "dataset",
@@ -175,8 +179,8 @@ Supported fields are as follows
 
 | Field Type    | Description            | Example                 |
 |---------------|------------------------|-------------------------|
-| resource_type | Type of the resource   | dataset, chart, dataJob |
-| resource_urn  | Urn of the resource    | urn:li:dataset:...      |
+| type | Type of the resource   | dataset, chart, dataJob |
+| urn  | Urn of the resource    | urn:li:dataset:...      |
 | domain        | Domain of the resource | urn:li:domain:domainX   |
 
 ## Managing Policies

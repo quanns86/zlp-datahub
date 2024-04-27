@@ -1,15 +1,17 @@
 import logging
 import os
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-import pydantic
 from google.cloud import bigquery
 from google.cloud.logging_v2.client import Client as GCPLoggingClient
 from pydantic import Field, PositiveInt, PrivateAttr, root_validator, validator
 
 from datahub.configuration.common import AllowDenyPattern, ConfigModel
 from datahub.configuration.validate_field_removal import pydantic_removed_field
+from datahub.ingestion.glossary.classification_mixin import (
+    ClassificationSourceConfigMixin,
+)
 from datahub.ingestion.source.sql.sql_config import SQLCommonConfig
 from datahub.ingestion.source.state.stateful_ingestion_base import (
     StatefulLineageConfigMixin,
@@ -64,9 +66,9 @@ class BigQueryConnectionConfig(ConfigModel):
             )
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self._credentials_path
 
-    def get_bigquery_client(config) -> bigquery.Client:
-        client_options = config.extra_client_options
-        return bigquery.Client(config.project_on_behalf, **client_options)
+    def get_bigquery_client(self) -> bigquery.Client:
+        client_options = self.extra_client_options
+        return bigquery.Client(self.project_on_behalf, **client_options)
 
     def make_gcp_logging_client(
         self, project_id: Optional[str] = None
@@ -80,6 +82,14 @@ class BigQueryConnectionConfig(ConfigModel):
         else:
             return GCPLoggingClient(**client_options)
 
+    def get_sql_alchemy_url(self) -> str:
+        if self.project_on_behalf:
+            return f"bigquery://{self.project_on_behalf}"
+        # When project_id is not set, we will attempt to detect the project ID
+        # based on the credentials or environment variables.
+        # See https://github.com/mxmzdlv/pybigquery#authentication.
+        return "bigquery://"
+
 
 class BigQueryV2Config(
     BigQueryConnectionConfig,
@@ -88,10 +98,16 @@ class BigQueryV2Config(
     StatefulUsageConfigMixin,
     StatefulLineageConfigMixin,
     StatefulProfilingConfigMixin,
+    ClassificationSourceConfigMixin,
 ):
     project_id_pattern: AllowDenyPattern = Field(
         default=AllowDenyPattern.allow_all(),
         description="Regex patterns for project_id to filter in ingestion.",
+    )
+
+    include_schema_metadata: bool = Field(
+        default=True,
+        description="Whether to ingest the BigQuery schema, i.e. projects, schemas, tables, and views.",
     )
 
     usage: BigQueryUsageConfig = Field(
@@ -103,12 +119,12 @@ class BigQueryV2Config(
         description="Generate usage statistic",
     )
 
-    capture_table_label_as_tag: bool = Field(
+    capture_table_label_as_tag: Union[bool, AllowDenyPattern] = Field(
         default=False,
         description="Capture BigQuery table labels as DataHub tag",
     )
 
-    capture_dataset_label_as_tag: bool = Field(
+    capture_dataset_label_as_tag: Union[bool, AllowDenyPattern] = Field(
         default=False,
         description="Capture BigQuery dataset labels as DataHub tag",
     )
@@ -119,8 +135,8 @@ class BigQueryV2Config(
     )
 
     match_fully_qualified_names: bool = Field(
-        default=False,
-        description="Whether `dataset_pattern` is matched against fully qualified dataset name `<project_id>.<dataset_name>`.",
+        default=True,
+        description="[deprecated] Whether `dataset_pattern` is matched against fully qualified dataset name `<project_id>.<dataset_name>`.",
     )
 
     include_external_url: bool = Field(
@@ -133,6 +149,15 @@ class BigQueryV2Config(
         description="Whether to create a DataPlatformInstance aspect, equal to the BigQuery project id."
         " If enabled, will cause redundancy in the browse path for BigQuery entities in the UI,"
         " because the project id is represented as the top-level container.",
+    )
+
+    include_table_snapshots: Optional[bool] = Field(
+        default=True, description="Whether table snapshots should be ingested."
+    )
+
+    table_snapshot_pattern: AllowDenyPattern = Field(
+        default=AllowDenyPattern.allow_all(),
+        description="Regex patterns for table snapshots to filter in ingestion. Specify regex to match the entire snapshot name in database.schema.snapshot format. e.g. to match all snapshots starting with customer in Customer database and public schema, use the regex 'Customer.public.customer.*'",
     )
 
     debug_include_full_payloads: bool = Field(
@@ -186,29 +211,14 @@ class BigQueryV2Config(
     )
 
     extract_column_lineage: bool = Field(
-        # TODO: Flip this default to True once we support patching column-level lineage.
         default=False,
         description="If enabled, generate column level lineage. "
-        "Requires lineage_use_sql_parser to be enabled. "
-        "This and `incremental_lineage` cannot both be enabled.",
+        "Requires lineage_use_sql_parser to be enabled.",
     )
-
-    @pydantic.validator("extract_column_lineage")
-    def validate_column_lineage(cls, v: bool, values: Dict[str, Any]) -> bool:
-        if v and values.get("incremental_lineage"):
-            raise ValueError(
-                "Cannot enable `extract_column_lineage` and `incremental_lineage` at the same time."
-            )
-        return v
 
     extract_lineage_from_catalog: bool = Field(
         default=False,
         description="This flag enables the data lineage extraction from Data Lineage API exposed by Google Data Catalog. NOTE: This extractor can't build views lineage. It's recommended to enable the view's DDL parsing. Read the docs to have more information about: https://cloud.google.com/data-catalog/docs/concepts/about-data-lineage",
-    )
-
-    convert_urns_to_lowercase: bool = Field(
-        default=False,
-        description="Convert urns to lowercase.",
     )
 
     enable_legacy_sharded_table_support: bool = Field(
@@ -265,11 +275,22 @@ class BigQueryV2Config(
         description="Maximum number of entries for the in-memory caches of FileBacked data structures.",
     )
 
-    @root_validator(pre=False)
+    exclude_empty_projects: bool = Field(
+        default=False,
+        description="Option to exclude empty projects from being ingested.",
+    )
+
+    schema_resolution_batch_size: int = Field(
+        default=100,
+        description="The number of tables to process in a batch when resolving schema from DataHub.",
+        hidden_from_schema=True,
+    )
+
+    @root_validator(skip_on_failure=True)
     def profile_default_settings(cls, values: Dict) -> Dict:
         # Extra default SQLAlchemy option for better connection pooling and threading.
         # https://docs.sqlalchemy.org/en/14/core/pooling.html#sqlalchemy.pool.QueuePool.params.max_overflow
-        values["options"].setdefault("max_overflow", values["profiling"].max_workers)
+        values["options"].setdefault("max_overflow", -1)
 
         return values
 
@@ -284,7 +305,7 @@ class BigQueryV2Config(
 
         return v
 
-    @root_validator(pre=False)
+    @root_validator(pre=False, skip_on_failure=True)
     def backward_compatibility_configs_set(cls, values: Dict) -> Dict:
         project_id = values.get("project_id")
         project_id_pattern = values.get("project_id_pattern")
@@ -299,7 +320,7 @@ class BigQueryV2Config(
                 "use project_id_pattern whenever possible. project_id will be deprecated, please use project_id_pattern only if possible."
             )
 
-        dataset_pattern = values.get("dataset_pattern")
+        dataset_pattern: Optional[AllowDenyPattern] = values.get("dataset_pattern")
         schema_pattern = values.get("schema_pattern")
         if (
             dataset_pattern == AllowDenyPattern.allow_all()
@@ -309,6 +330,7 @@ class BigQueryV2Config(
                 "dataset_pattern is not set but schema_pattern is set, using schema_pattern as dataset_pattern. schema_pattern will be deprecated, please use dataset_pattern instead."
             )
             values["dataset_pattern"] = schema_pattern
+            dataset_pattern = schema_pattern
         elif (
             dataset_pattern != AllowDenyPattern.allow_all()
             and schema_pattern != AllowDenyPattern.allow_all()
@@ -327,21 +349,28 @@ class BigQueryV2Config(
         ):
             logger.warning(
                 "Please update `dataset_pattern` to match against fully qualified schema name `<project_id>.<dataset_name>` and set config `match_fully_qualified_names : True`."
-                "Current default `match_fully_qualified_names: False` is only to maintain backward compatibility. "
-                "The config option `match_fully_qualified_names` will be deprecated in future and the default behavior will assume `match_fully_qualified_names: True`."
+                "The config option `match_fully_qualified_names` is deprecated and will be removed in a future release."
             )
+        elif match_fully_qualified_names and dataset_pattern is not None:
+            adjusted = False
+            for lst in [dataset_pattern.allow, dataset_pattern.deny]:
+                for i, pattern in enumerate(lst):
+                    if "." not in pattern:
+                        if pattern.startswith("^"):
+                            lst[i] = r"^.*\." + pattern[1:]
+                        else:
+                            lst[i] = r".*\." + pattern
+                        adjusted = True
+            if adjusted:
+                logger.warning(
+                    "`dataset_pattern` was adjusted to match against fully qualified schema names,"
+                    " of the form `<project_id>.<dataset_name>`."
+                )
+
         return values
 
     def get_table_pattern(self, pattern: List[str]) -> str:
         return "|".join(pattern) if pattern else ""
-
-    def get_sql_alchemy_url(self) -> str:
-        if self.project_on_behalf:
-            return f"bigquery://{self.project_on_behalf}"
-        # When project_id is not set, we will attempt to detect the project ID
-        # based on the credentials or environment variables.
-        # See https://github.com/mxmzdlv/pybigquery#authentication.
-        return "bigquery://"
 
     platform_instance_not_supported_for_bigquery = pydantic_removed_field(
         "platform_instance"

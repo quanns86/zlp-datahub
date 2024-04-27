@@ -5,6 +5,7 @@ import os
 import platform
 import shutil
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Iterator, List, Optional, cast
@@ -38,6 +39,7 @@ from datahub.ingestion.source.source_registry import source_registry
 from datahub.ingestion.transformer.transform_registry import transform_registry
 from datahub.metadata.schema_classes import MetadataChangeProposalClass
 from datahub.telemetry import stats, telemetry
+from datahub.utilities._custom_package_loader import model_version_name
 from datahub.utilities.global_warning_util import (
     clear_global_warnings,
     get_global_warnings,
@@ -126,11 +128,22 @@ def _add_init_error_context(step: str) -> Iterator[None]:
 class CliReport(Report):
     cli_version: str = datahub.nice_version_name()
     cli_entry_location: str = datahub.__file__
+    models_version: str = model_version_name()
     py_version: str = sys.version
     py_exec_path: str = sys.executable
     os_details: str = platform.platform()
+
+    mem_info: Optional[str] = None
+    peak_memory_usage: Optional[str] = None
     _peak_memory_usage: int = 0
+
+    disk_info: Optional[dict] = None
+    peak_disk_usage: Optional[str] = None
+    _initial_disk_usage: int = -1
     _peak_disk_usage: int = 0
+
+    thread_count: Optional[int] = None
+    peak_thread_count: Optional[int] = None
 
     def compute_stats(self) -> None:
         try:
@@ -141,18 +154,30 @@ class CliReport(Report):
                     self._peak_memory_usage
                 )
             self.mem_info = humanfriendly.format_size(mem_usage)
+        except Exception as e:
+            logger.warning(f"Failed to compute memory usage: {e}")
 
+        try:
             disk_usage = shutil.disk_usage("/")
+            if self._initial_disk_usage < 0:
+                self._initial_disk_usage = disk_usage.used
             if self._peak_disk_usage < disk_usage.used:
                 self._peak_disk_usage = disk_usage.used
                 self.peak_disk_usage = humanfriendly.format_size(self._peak_disk_usage)
             self.disk_info = {
                 "total": humanfriendly.format_size(disk_usage.total),
                 "used": humanfriendly.format_size(disk_usage.used),
+                "used_initally": humanfriendly.format_size(self._initial_disk_usage),
                 "free": humanfriendly.format_size(disk_usage.free),
             }
         except Exception as e:
-            logger.warning(f"Failed to compute report memory usage: {e}")
+            logger.warning(f"Failed to compute disk usage: {e}")
+
+        try:
+            self.thread_count = threading.active_count()
+            self.peak_thread_count = max(self.peak_thread_count or 0, self.thread_count)
+        except Exception as e:
+            logger.warning(f"Failed to compute thread count: {e}")
 
         return super().compute_stats()
 
@@ -173,6 +198,7 @@ class Pipeline:
         preview_workunits: int = 10,
         report_to: Optional[str] = None,
         no_default_report: bool = False,
+        no_progress: bool = False,
     ):
         self.config = config
         self.dry_run = dry_run
@@ -180,6 +206,7 @@ class Pipeline:
         self.preview_workunits = preview_workunits
         self.report_to = report_to
         self.reporters: List[PipelineRunListener] = []
+        self.no_progress = no_progress
         self.num_intermediate_workunits = 0
         self.last_time_printed = int(time.time())
         self.cli_report = CliReport()
@@ -188,6 +215,7 @@ class Pipeline:
         with _add_init_error_context("connect to DataHub"):
             if self.config.datahub_api:
                 self.graph = DataHubGraph(self.config.datahub_api)
+                self.graph.test_connection()
 
             telemetry.telemetry_instance.update_capture_exception_context(
                 server=self.graph
@@ -330,6 +358,7 @@ class Pipeline:
         preview_workunits: int = 10,
         report_to: Optional[str] = "datahub",
         no_default_report: bool = False,
+        no_progress: bool = False,
         raw_config: Optional[dict] = None,
     ) -> "Pipeline":
         config = PipelineConfig.from_dict(config_dict, raw_config)
@@ -340,6 +369,7 @@ class Pipeline:
             preview_workunits=preview_workunits,
             report_to=report_to,
             no_default_report=no_default_report,
+            no_progress=no_progress,
         )
 
     def _time_to_print(self) -> bool:
@@ -353,77 +383,97 @@ class Pipeline:
         return False
 
     def run(self) -> None:
-        self.final_status = "unknown"
-        self._notify_reporters_on_ingestion_start()
-        callback = None
-        try:
-            callback = (
-                LoggingCallback()
-                if not self.config.failure_log.enabled
-                else DeadLetterQueueCallback(
-                    self.ctx, self.config.failure_log.log_config
+        with contextlib.ExitStack() as stack:
+            if self.config.flags.generate_memory_profiles:
+                import memray
+
+                stack.enter_context(
+                    memray.Tracker(
+                        f"{self.config.flags.generate_memory_profiles}/{self.config.run_id}.bin"
+                    )
                 )
-            )
-            for wu in itertools.islice(
-                self.source.get_workunits(),
-                self.preview_workunits if self.preview_mode else None,
-            ):
-                try:
-                    if self._time_to_print():
-                        self.pretty_print_summary(currently_running=True)
-                except Exception as e:
-                    logger.warning(f"Failed to print summary {e}")
 
-                if not self.dry_run:
-                    self.sink.handle_work_unit_start(wu)
-                try:
-                    record_envelopes = self.extractor.get_records(wu)
-                    for record_envelope in self.transform(record_envelopes):
-                        if not self.dry_run:
-                            self.sink.write_record_async(record_envelope, callback)
-
-                except RuntimeError:
-                    raise
-                except SystemExit:
-                    raise
-                except Exception as e:
-                    logger.error(
-                        "Failed to process some records. Continuing.", exc_info=e
+            self.final_status = "unknown"
+            self._notify_reporters_on_ingestion_start()
+            callback = None
+            try:
+                callback = (
+                    LoggingCallback()
+                    if not self.config.failure_log.enabled
+                    else DeadLetterQueueCallback(
+                        self.ctx, self.config.failure_log.log_config
                     )
-                    # TODO: Transformer errors should cause the pipeline to fail.
-
-                self.extractor.close()
-                if not self.dry_run:
-                    self.sink.handle_work_unit_end(wu)
-            self.source.close()
-            # no more data is coming, we need to let the transformers produce any additional records if they are holding on to state
-            for record_envelope in self.transform(
-                [
-                    RecordEnvelope(
-                        record=EndOfStream(), metadata={"workunit_id": "end-of-stream"}
-                    )
-                ]
-            ):
-                if not self.dry_run and not isinstance(
-                    record_envelope.record, EndOfStream
+                )
+                for wu in itertools.islice(
+                    self.source.get_workunits(),
+                    self.preview_workunits if self.preview_mode else None,
                 ):
-                    # TODO: propagate EndOfStream and other control events to sinks, to allow them to flush etc.
-                    self.sink.write_record_async(record_envelope, callback)
+                    try:
+                        if self._time_to_print() and not self.no_progress:
+                            self.pretty_print_summary(currently_running=True)
+                    except Exception as e:
+                        logger.warning(f"Failed to print summary {e}")
 
-            self.sink.close()
-            self.process_commits()
-            self.final_status = "completed"
-        except (SystemExit, RuntimeError, KeyboardInterrupt) as e:
-            self.final_status = "cancelled"
-            logger.error("Caught error", exc_info=e)
-            raise
-        finally:
-            clear_global_warnings()
+                    if not self.dry_run:
+                        self.sink.handle_work_unit_start(wu)
+                    try:
+                        record_envelopes = self.extractor.get_records(wu)
+                        for record_envelope in self.transform(record_envelopes):
+                            if not self.dry_run:
+                                try:
+                                    self.sink.write_record_async(
+                                        record_envelope, callback
+                                    )
+                                except Exception as e:
+                                    # In case the sink's error handling is bad, we still want to report the error.
+                                    self.sink.report.report_failure(
+                                        f"Failed to write record: {e}"
+                                    )
 
-            if callback and hasattr(callback, "close"):
-                callback.close()  # type: ignore
+                    except RuntimeError:
+                        raise
+                    except SystemExit:
+                        raise
+                    except Exception as e:
+                        logger.error(
+                            "Failed to process some records. Continuing.",
+                            exc_info=e,
+                        )
+                        # TODO: Transformer errors should cause the pipeline to fail.
 
-            self._notify_reporters_on_ingestion_completion()
+                    self.extractor.close()
+                    if not self.dry_run:
+                        self.sink.handle_work_unit_end(wu)
+                self.source.close()
+                # no more data is coming, we need to let the transformers produce any additional records if they are holding on to state
+                for record_envelope in self.transform(
+                    [
+                        RecordEnvelope(
+                            record=EndOfStream(),
+                            metadata={"workunit_id": "end-of-stream"},
+                        )
+                    ]
+                ):
+                    if not self.dry_run and not isinstance(
+                        record_envelope.record, EndOfStream
+                    ):
+                        # TODO: propagate EndOfStream and other control events to sinks, to allow them to flush etc.
+                        self.sink.write_record_async(record_envelope, callback)
+
+                self.sink.close()
+                self.process_commits()
+                self.final_status = "completed"
+            except (SystemExit, RuntimeError, KeyboardInterrupt) as e:
+                self.final_status = "cancelled"
+                logger.error("Caught error", exc_info=e)
+                raise
+            finally:
+                clear_global_warnings()
+
+                if callback and hasattr(callback, "close"):
+                    callback.close()  # type: ignore
+
+                self._notify_reporters_on_ingestion_completion()
 
     def transform(self, records: Iterable[RecordEnvelope]) -> Iterable[RecordEnvelope]:
         """
@@ -504,6 +554,9 @@ class Pipeline:
             {
                 "source_type": self.config.source.type,
                 "sink_type": self.config.sink.type,
+                "transformer_types": [
+                    transformer.type for transformer in self.config.transformers or []
+                ],
                 "records_written": stats.discretize(
                     self.sink.get_report().total_records_written
                 ),
@@ -516,6 +569,7 @@ class Pipeline:
                 "warnings": stats.discretize(
                     source_warnings + sink_warnings + global_warnings
                 ),
+                "has_pipeline_name": bool(self.config.pipeline_name),
             },
             self.ctx.graph,
         )

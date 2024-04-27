@@ -116,7 +116,7 @@ class PulsarSource(StatefulIngestionSourceBase):
                 f"{self.config.issuer_url}/.well-known/openid-configuration"
             )
             oid_config_response = requests.get(
-                oid_config_url, verify=False, allow_redirects=False
+                oid_config_url, verify=self.session.verify, allow_redirects=False
             )
 
             if oid_config_response:
@@ -163,7 +163,7 @@ class PulsarSource(StatefulIngestionSourceBase):
                 token_response = requests.post(
                     url=token_endpoint,
                     data=data,
-                    verify=False,
+                    verify=self.session.verify,
                     allow_redirects=False,
                     auth=(
                         self.config.client_id,
@@ -416,19 +416,19 @@ class PulsarSource(StatefulIngestionSourceBase):
         # TODO Add topic properties (Pulsar 2.10.0 feature)
         # 3. Construct and emit dataset properties aspect
         if schema is not None:
+            # Add some static properties to the schema properties
             schema_properties = {
+                **schema.properties,
                 "schema_version": str(schema.schema_version),
                 "schema_type": schema.schema_type,
                 "partitioned": str(partitioned).lower(),
             }
-            # Add some static properties to the schema properties
-            schema.properties.update(schema_properties)
 
             yield MetadataChangeProposalWrapper(
                 entityUrn=dataset_urn,
                 aspect=DatasetPropertiesClass(
                     description=schema.schema_description,
-                    customProperties=schema.properties,
+                    customProperties=schema_properties,
                 ),
             ).as_workunit()
 

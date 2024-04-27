@@ -6,13 +6,11 @@ import com.linkedin.common.urn.Urn;
 import com.linkedin.data.DataMap;
 import com.linkedin.data.template.RecordTemplate;
 import com.linkedin.data.template.SetMode;
-import com.linkedin.entity.client.SystemRestliEntityClient;
-import com.linkedin.gms.factory.entity.RestliEntityClientFactory;
+import com.linkedin.entity.client.SystemEntityClient;
 import com.linkedin.gms.factory.entityregistry.EntityRegistryFactory;
 import com.linkedin.metadata.Constants;
 import com.linkedin.metadata.kafka.hook.MetadataChangeLogHook;
 import com.linkedin.metadata.models.AspectSpec;
-import com.linkedin.metadata.models.registry.EntityRegistry;
 import com.linkedin.metadata.timeline.data.ChangeEvent;
 import com.linkedin.metadata.timeline.eventgenerator.Aspect;
 import com.linkedin.metadata.timeline.eventgenerator.EntityChangeEventGenerator;
@@ -23,6 +21,7 @@ import com.linkedin.mxe.PlatformEvent;
 import com.linkedin.mxe.PlatformEventHeader;
 import com.linkedin.mxe.SystemMetadata;
 import com.linkedin.platform.event.v1.Parameters;
+import io.datahubproject.metadata.context.OperationContext;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -32,23 +31,21 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Import;
 import org.springframework.stereotype.Component;
 
-
 /**
- * A {@link MetadataChangeLogHook} responsible for generating Entity Change Events
- * to the Platform Events topic.
+ * A {@link MetadataChangeLogHook} responsible for generating Entity Change Events to the Platform
+ * Events topic.
  */
 @Slf4j
 @Component
-@Import({EntityChangeEventGeneratorRegistry.class, EntityRegistryFactory.class, RestliEntityClientFactory.class})
+@Import({EntityRegistryFactory.class})
 public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
 
-  /**
-   * The list of aspects that are supported for generating semantic change events.
-   */
+  /** The list of aspects that are supported for generating semantic change events. */
   private static final Set<String> SUPPORTED_ASPECT_NAMES =
       ImmutableSet.of(
           Constants.GLOBAL_TAGS_ASPECT_NAME,
@@ -62,6 +59,7 @@ public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
           Constants.EDITABLE_DATASET_PROPERTIES_ASPECT_NAME,
           Constants.ASSERTION_RUN_EVENT_ASPECT_NAME,
           Constants.DATA_PROCESS_INSTANCE_RUN_EVENT_ASPECT_NAME,
+          Constants.BUSINESS_ATTRIBUTE_INFO_ASPECT_NAME,
 
           // Entity Lifecycle Event
           Constants.DATASET_KEY_ASPECT_NAME,
@@ -73,25 +71,29 @@ public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
           Constants.GLOSSARY_TERM_KEY_ASPECT_NAME,
           Constants.DOMAIN_KEY_ASPECT_NAME,
           Constants.TAG_KEY_ASPECT_NAME,
-          Constants.STATUS_ASPECT_NAME);
-  /**
-   * The list of change types that are supported for generating semantic change events.
-   */
-  private static final Set<String> SUPPORTED_OPERATIONS = ImmutableSet.of("CREATE", "UPSERT", "DELETE");
+          Constants.STATUS_ASPECT_NAME,
+          Constants.BUSINESS_ATTRIBUTE_KEY_ASPECT_NAME);
+
+  /** The list of change types that are supported for generating semantic change events. */
+  private static final Set<String> SUPPORTED_OPERATIONS =
+      ImmutableSet.of("CREATE", "UPSERT", "DELETE");
+
   private final EntityChangeEventGeneratorRegistry _entityChangeEventGeneratorRegistry;
-  private final SystemRestliEntityClient _entityClient;
-  private final EntityRegistry _entityRegistry;
+  private final OperationContext systemOperationContext;
+  private final SystemEntityClient _entityClient;
   private final Boolean _isEnabled;
 
   @Autowired
   public EntityChangeEventGeneratorHook(
-      @Nonnull final EntityChangeEventGeneratorRegistry entityChangeEventGeneratorRegistry,
-      @Nonnull final SystemRestliEntityClient entityClient,
-      @Nonnull final EntityRegistry entityRegistry,
+      @Nonnull OperationContext systemOperationContext,
+      @Nonnull @Qualifier("entityChangeEventGeneratorRegistry")
+          final EntityChangeEventGeneratorRegistry entityChangeEventGeneratorRegistry,
+      @Nonnull final SystemEntityClient entityClient,
       @Nonnull @Value("${entityChangeEvents.enabled:true}") Boolean isEnabled) {
-    _entityChangeEventGeneratorRegistry = Objects.requireNonNull(entityChangeEventGeneratorRegistry);
+    this.systemOperationContext = systemOperationContext;
+    _entityChangeEventGeneratorRegistry =
+        Objects.requireNonNull(entityChangeEventGeneratorRegistry);
     _entityClient = Objects.requireNonNull(entityClient);
-    _entityRegistry = Objects.requireNonNull(entityRegistry);
     _isEnabled = isEnabled;
   }
 
@@ -108,41 +110,47 @@ public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
       // 2. Find and invoke a EntityChangeEventGenerator.
       // 3. Sink the output of the EntityChangeEventGenerator to a specific PDL change event.
       final AspectSpec aspectSpec =
-          _entityRegistry.getEntitySpec(logEvent.getEntityType()).getAspectSpec(logEvent.getAspectName());
+          systemOperationContext
+              .getEntityRegistry()
+              .getEntitySpec(logEvent.getEntityType())
+              .getAspectSpec(logEvent.getAspectName());
 
       assert aspectSpec != null;
 
-      final RecordTemplate fromAspect = logEvent.getPreviousAspectValue() != null
-          ? GenericRecordUtils.deserializeAspect(
-          logEvent.getPreviousAspectValue().getValue(),
-          logEvent.getPreviousAspectValue().getContentType(),
-          aspectSpec)
-          : null;
+      final RecordTemplate fromAspect =
+          logEvent.getPreviousAspectValue() != null
+              ? GenericRecordUtils.deserializeAspect(
+                  logEvent.getPreviousAspectValue().getValue(),
+                  logEvent.getPreviousAspectValue().getContentType(),
+                  aspectSpec)
+              : null;
 
-      final RecordTemplate toAspect = logEvent.getAspect() != null
-          ? GenericRecordUtils.deserializeAspect(
-          logEvent.getAspect().getValue(),
-          logEvent.getAspect().getContentType(),
-          aspectSpec)
-          : null;
+      final RecordTemplate toAspect =
+          logEvent.getAspect() != null
+              ? GenericRecordUtils.deserializeAspect(
+                  logEvent.getAspect().getValue(),
+                  logEvent.getAspect().getContentType(),
+                  aspectSpec)
+              : null;
 
-      final List<ChangeEvent> changeEvents = generateChangeEvents(
-          logEvent.getEntityUrn(),
-          logEvent.getEntityType(),
-          logEvent.getAspectName(),
-          createAspect(fromAspect, logEvent.getPreviousSystemMetadata()),
-          createAspect(toAspect, logEvent.getSystemMetadata()),
-          logEvent.getCreated()
-      );
+      final List<ChangeEvent> changeEvents =
+          generateChangeEvents(
+              logEvent.getEntityUrn(),
+              logEvent.getEntityType(),
+              logEvent.getAspectName(),
+              createAspect(fromAspect, logEvent.getPreviousSystemMetadata()),
+              createAspect(toAspect, logEvent.getSystemMetadata()),
+              logEvent.getCreated());
 
       // Iterate through each transaction, emit change events as platform events.
       for (final ChangeEvent event : changeEvents) {
         PlatformEvent platformEvent = buildPlatformEvent(event);
         emitPlatformEvent(
             platformEvent,
-            String.format("%s-%s", Constants.CHANGE_EVENT_PLATFORM_EVENT_NAME, event.getEntityUrn())
-        );
-        log.debug("Successfully emitted change event. category: {}, operation: {}, entity urn: {}",
+            String.format(
+                "%s-%s", Constants.CHANGE_EVENT_PLATFORM_EVENT_NAME, event.getEntityUrn()));
+        log.debug(
+            "Successfully emitted change event. category: {}, operation: {}, entity urn: {}",
             event.getCategory(),
             event.getOperation(),
             event.getEntityUrn());
@@ -156,35 +164,30 @@ public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
       @Nonnull final String aspectName,
       @Nonnull final Aspect from,
       @Nonnull final Aspect to,
-      @Nonnull AuditStamp auditStamp
-  ) {
+      @Nonnull AuditStamp auditStamp) {
     final List<EntityChangeEventGenerator<T>> entityChangeEventGenerators =
-        _entityChangeEventGeneratorRegistry
-            .getEntityChangeEventGenerators(aspectName)
-            .stream()
+        _entityChangeEventGeneratorRegistry.getEntityChangeEventGenerators(aspectName).stream()
             // Note: Assumes that correct types have been registered for the aspect.
             .map(changeEventGenerator -> (EntityChangeEventGenerator<T>) changeEventGenerator)
             .collect(Collectors.toList());
     final List<ChangeEvent> allChangeEvents = new ArrayList<>();
     for (EntityChangeEventGenerator<T> entityChangeEventGenerator : entityChangeEventGenerators) {
       allChangeEvents.addAll(
-          entityChangeEventGenerator.getChangeEvents(urn, entityName, aspectName, from, to, auditStamp));
+          entityChangeEventGenerator.getChangeEvents(
+              urn, entityName, aspectName, from, to, auditStamp));
     }
     return allChangeEvents;
   }
 
   private boolean isEligibleForProcessing(final MetadataChangeLog log) {
-    return SUPPORTED_OPERATIONS.contains(log.getChangeType().toString()) && SUPPORTED_ASPECT_NAMES.contains(
-        log.getAspectName());
+    return SUPPORTED_OPERATIONS.contains(log.getChangeType().toString())
+        && SUPPORTED_ASPECT_NAMES.contains(log.getAspectName());
   }
 
-  private void emitPlatformEvent(@Nonnull final PlatformEvent event, @Nonnull final String partitioningKey)
-      throws Exception {
+  private void emitPlatformEvent(
+      @Nonnull final PlatformEvent event, @Nonnull final String partitioningKey) throws Exception {
     _entityClient.producePlatformEvent(
-        Constants.CHANGE_EVENT_PLATFORM_EVENT_NAME,
-        partitioningKey,
-        event
-    );
+        systemOperationContext, Constants.CHANGE_EVENT_PLATFORM_EVENT_NAME, partitioningKey, event);
   }
 
   private PlatformEvent buildPlatformEvent(final ChangeEvent rawChangeEvent) {
@@ -193,14 +196,15 @@ public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
     // 2. Build platform event
     PlatformEvent platformEvent = new PlatformEvent();
     platformEvent.setName(Constants.CHANGE_EVENT_PLATFORM_EVENT_NAME);
-    platformEvent.setHeader(new PlatformEventHeader().setTimestampMillis(rawChangeEvent.getAuditStamp().getTime()));
+    platformEvent.setHeader(
+        new PlatformEventHeader().setTimestampMillis(rawChangeEvent.getAuditStamp().getTime()));
     platformEvent.setPayload(GenericRecordUtils.serializePayload(changeEvent));
     return platformEvent;
   }
 
   /**
-   * Thin mapping from internal Timeline API {@link ChangeEvent} to Kafka Platform Event {@link ChangeEvent}, which serves as a public
-   * API for outbound consumption.
+   * Thin mapping from internal Timeline API {@link ChangeEvent} to Kafka Platform Event {@link
+   * ChangeEvent}, which serves as a public API for outbound consumption.
    */
   private RecordTemplate convertRawEventToChangeEvent(final ChangeEvent rawChangeEvent) {
     com.linkedin.platform.event.v1.EntityChangeEvent changeEvent =
@@ -216,7 +220,8 @@ public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
       changeEvent.setAuditStamp(rawChangeEvent.getAuditStamp());
       changeEvent.setVersion(0);
       if (rawChangeEvent.getParameters() != null) {
-        // This map should ideally contain only primitives at the leaves - integers, floats, booleans, strings.
+        // This map should ideally contain only primitives at the leaves - integers, floats,
+        // booleans, strings.
         changeEvent.setParameters(new Parameters(new DataMap(rawChangeEvent.getParameters())));
       }
       return changeEvent;
@@ -225,7 +230,8 @@ public class EntityChangeEventGeneratorHook implements MetadataChangeLogHook {
     }
   }
 
-  private Aspect createAspect(@Nullable final RecordTemplate value, @Nullable final SystemMetadata systemMetadata) {
+  private Aspect createAspect(
+      @Nullable final RecordTemplate value, @Nullable final SystemMetadata systemMetadata) {
     return new Aspect(value, systemMetadata);
   }
 }

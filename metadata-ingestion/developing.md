@@ -9,11 +9,10 @@ Also take a look at the guide to [adding a source](./adding-source.md).
 
 ### Requirements
 
-1. Python 3.7+ must be installed in your host environment.
-2. Java8 (gradle won't work with newer versions)
-3. On MacOS: `brew install librdkafka`
-4. On Debian/Ubuntu: `sudo apt install librdkafka-dev python3-dev python3-venv`
-5. On Fedora (if using LDAP source integration): `sudo yum install openldap-devel`
+1. Python 3.8+ must be installed in your host environment.
+2. Java 17 (gradle won't work with newer or older versions)
+3. On Debian/Ubuntu: `sudo apt install python3-dev python3-venv`
+4. On Fedora (if using LDAP source integration): `sudo yum install openldap-devel`
 
 ### Set up your Python environment
 
@@ -33,6 +32,16 @@ From the repository root:
 ```shell
 cd metadata-ingestion-modules/airflow-plugin
 ../../gradlew :metadata-ingestion-modules:airflow-plugin:installDev
+source venv/bin/activate
+datahub version  # should print "DataHub CLI version: unavailable (installed in develop mode)"
+```
+### (Optional) Set up your Python environment for developing on Dagster Plugin
+
+From the repository root:
+
+```shell
+cd metadata-ingestion-modules/dagster-plugin
+../../gradlew :metadata-ingestion-modules:dagster-plugin:installDev
 source venv/bin/activate
 datahub version  # should print "DataHub CLI version: unavailable (installed in develop mode)"
 ```
@@ -111,6 +120,7 @@ mypy src/ tests/
 ```
 
 or you can run from root of the repository
+
 ```shell
 ./gradlew :metadata-ingestion:lintFix
 ```
@@ -178,13 +188,10 @@ pip install -e '.[integration-tests]'
 pytest -vv
 
 # Run unit tests.
-pytest -m 'not integration and not slow_integration'
+pytest -m 'not integration'
 
 # Run Docker-based integration tests.
 pytest -m 'integration'
-
-# Run Docker-based slow integration tests.
-pytest -m 'slow_integration'
 
 # You can also run these steps via the gradle build:
 ../gradlew :metadata-ingestion:lint
@@ -210,4 +217,28 @@ For example,
 
 ```shell
 pytest tests/integration/dbt/test_dbt.py --update-golden-files
+```
+
+### Testing the Airflow plugin
+
+For the Airflow plugin, we use `tox` to test across multiple sets of dependencies.
+
+```sh
+cd metadata-ingestion-modules/airflow-plugin
+
+# Run all tests.
+tox
+
+# Run a specific environment.
+# These are defined in the `tox.ini` file
+tox -e py310-airflow26
+
+# Run a specific test.
+tox -e py310-airflow26 -- tests/integration/test_plugin.py
+
+# Update all golden files.
+tox -- --update-golden-files
+
+# Update golden files for a specific environment.
+tox -e py310-airflow26 -- --update-golden-files
 ```

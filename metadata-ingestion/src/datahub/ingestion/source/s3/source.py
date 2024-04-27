@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import PurePath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import smart_open.compression as so_compression
 from more_itertools import peekable
 from pyspark.conf import SparkConf
 from pyspark.sql import SparkSession
@@ -77,6 +78,7 @@ from datahub.metadata.com.linkedin.pegasus2avro.schema import (
     NullTypeClass,
     NumberTypeClass,
     RecordTypeClass,
+    SchemaField,
     SchemaFieldDataType,
     SchemaMetadata,
     StringTypeClass,
@@ -89,6 +91,7 @@ from datahub.metadata.schema_classes import (
     OperationClass,
     OperationTypeClass,
     OtherSchemaClass,
+    SchemaFieldDataTypeClass,
     _Aspect,
 )
 from datahub.telemetry import stats, telemetry
@@ -119,6 +122,9 @@ _field_type_mapping = {
     StructType: RecordTypeClass,
 }
 PAGE_SIZE = 1000
+
+# Hack to support the .gzip extension with smart_open.
+so_compression.register_compressor(".gzip", so_compression._COMPRESSOR_REGISTRY[".gz"])
 
 
 def get_column_type(
@@ -257,12 +263,14 @@ class S3Source(StatefulIngestionSourceBase):
             self.init_spark()
 
     def init_spark(self):
+        os.environ.setdefault("SPARK_VERSION", "3.3")
+        spark_version = os.environ["SPARK_VERSION"]
+
         # Importing here to avoid Deequ dependency for non profiling use cases
         # Deequ fails if Spark is not available which is not needed for non profiling use cases
         import pydeequ
 
         conf = SparkConf()
-        spark_version = os.getenv("SPARK_VERSION", "3.3")
         conf.set(
             "spark.jars.packages",
             ",".join(
@@ -371,7 +379,7 @@ class S3Source(StatefulIngestionSourceBase):
                 ignoreLeadingWhiteSpace=True,
                 ignoreTrailingWhiteSpace=True,
             )
-        elif ext.endswith(".json"):
+        elif ext.endswith(".json") or ext.endswith(".jsonl"):
             df = self.spark.read.json(file)
         elif ext.endswith(".avro"):
             try:
@@ -407,7 +415,9 @@ class S3Source(StatefulIngestionSourceBase):
                 table_data.full_path, "rb", transport_params={"client": s3_client}
             )
         else:
-            file = open(table_data.full_path, "rb")
+            # We still use smart_open here to take advantage of the compression
+            # capabilities of smart_open.
+            file = smart_open(table_data.full_path, "rb")
 
         fields = []
 
@@ -433,6 +443,10 @@ class S3Source(StatefulIngestionSourceBase):
                 fields = csv_tsv.TsvInferrer(
                     max_rows=self.source_config.max_rows
                 ).infer_schema(file)
+            elif extension == ".jsonl":
+                fields = json.JsonInferrer(
+                    max_rows=self.source_config.max_rows, format="jsonl"
+                ).infer_schema(file)
             elif extension == ".json":
                 fields = json.JsonInferrer().infer_schema(file)
             elif extension == ".avro":
@@ -450,9 +464,41 @@ class S3Source(StatefulIngestionSourceBase):
             )
             file.close()
         logger.debug(f"Extracted fields in schema: {fields}")
-        fields = sorted(fields, key=lambda f: f.fieldPath)
+        if self.source_config.sort_schema_fields:
+            fields = sorted(fields, key=lambda f: f.fieldPath)
+
+        if self.source_config.add_partition_columns_to_schema:
+            self.add_partition_columns_to_schema(
+                fields=fields, path_spec=path_spec, full_path=table_data.full_path
+            )
 
         return fields
+
+    def add_partition_columns_to_schema(
+        self, path_spec: PathSpec, full_path: str, fields: List[SchemaField]
+    ) -> None:
+        is_fieldpath_v2 = False
+        for field in fields:
+            if field.fieldPath.startswith("[version=2.0]"):
+                is_fieldpath_v2 = True
+                break
+        vars = path_spec.get_named_vars(full_path)
+        if vars is not None and "partition_key" in vars:
+            for partition_key in vars["partition_key"].values():
+                fields.append(
+                    SchemaField(
+                        fieldPath=f"{partition_key}"
+                        if not is_fieldpath_v2
+                        else f"[version=2.0].[type=string].{partition_key}",
+                        nativeDataType="string",
+                        type=SchemaFieldDataType(StringTypeClass())
+                        if not is_fieldpath_v2
+                        else SchemaFieldDataTypeClass(type=StringTypeClass()),
+                        isPartitioningKey=True,
+                        nullable=True,
+                        recursive=False,
+                    )
+                )
 
     def get_table_profile(
         self, table_data: TableData, dataset_urn: str

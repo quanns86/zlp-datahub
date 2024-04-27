@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Union, cast
+from datetime import datetime
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union, cast
 
 from airflow.configuration import conf
 from datahub.api.entities.datajob import DataFlow, DataJob
@@ -6,19 +7,19 @@ from datahub.api.entities.dataprocess.dataprocess_instance import (
     DataProcessInstance,
     InstanceRunResult,
 )
+from datahub.emitter.generic_emitter import Emitter
 from datahub.metadata.schema_classes import DataProcessTypeClass
 from datahub.utilities.urns.data_flow_urn import DataFlowUrn
 from datahub.utilities.urns.data_job_urn import DataJobUrn
 
 from datahub_airflow_plugin._airflow_compat import AIRFLOW_PATCHED
+from datahub_airflow_plugin._config import DatahubLineageConfig, DatajobUrl
 
 assert AIRFLOW_PATCHED
 
 if TYPE_CHECKING:
     from airflow import DAG
     from airflow.models import DagRun, TaskInstance
-    from datahub.emitter.kafka_emitter import DatahubKafkaEmitter
-    from datahub.emitter.rest_emitter import DatahubRestEmitter
 
     from datahub_airflow_plugin._airflow_shims import Operator
 
@@ -91,14 +92,14 @@ class AirflowGenerator:
                 )
 
                 # if the task triggers the subdag, link it to this node in the subdag
-                if subdag_task_id in _task_downstream_task_ids(upstream_task):
+                if subdag_task_id in sorted(_task_downstream_task_ids(upstream_task)):
                     upstream_subdag_triggers.append(upstream_task_urn)
 
         # If the operator is an ExternalTaskSensor then we set the remote task as upstream.
         # It is possible to tie an external sensor to DAG if external_task_id is omitted but currently we can't tie
         # jobflow to anothet jobflow.
         external_task_upstreams = []
-        if task.task_type == "ExternalTaskSensor":
+        if isinstance(task, ExternalTaskSensor):
             task = cast(ExternalTaskSensor, task)
             if hasattr(task, "external_task_id") and task.external_task_id is not None:
                 external_task_upstreams = [
@@ -106,9 +107,9 @@ class AirflowGenerator:
                         job_id=task.external_task_id,
                         data_flow_urn=str(
                             DataFlowUrn.create_from_ids(
-                                orchestrator=flow_urn.get_orchestrator_name(),
+                                orchestrator=flow_urn.orchestrator,
                                 flow_id=task.external_dag_id,
-                                env=flow_urn.get_env(),
+                                env=flow_urn.cluster,
                             )
                         ),
                     )
@@ -143,7 +144,7 @@ class AirflowGenerator:
         """
         id = dag.dag_id
         orchestrator = "airflow"
-        description = f"{dag.description}\n\n{dag.doc_md or ''}"
+        description = "\n\n".join(filter(None, [dag.description, dag.doc_md])) or None
         data_flow = DataFlow(
             env=cluster, id=id, orchestrator=orchestrator, description=description
         )
@@ -153,8 +154,10 @@ class AirflowGenerator:
         allowed_flow_keys = [
             "_access_control",
             "_concurrency",
-            "_default_view",
+            # "_default_view",
             "catchup",
+            "description",
+            "doc_md",
             "fileloc",
             "is_paused_upon_creation",
             "start_date",
@@ -171,7 +174,7 @@ class AirflowGenerator:
         data_flow.url = f"{base_url}/tree?dag_id={dag.dag_id}"
 
         if capture_owner and dag.owner:
-            data_flow.owners.add(dag.owner)
+            data_flow.owners.update(owner.strip() for owner in dag.owner.split(","))
 
         if capture_tags and dag.tags:
             data_flow.tags.update(dag.tags)
@@ -206,6 +209,7 @@ class AirflowGenerator:
         set_dependencies: bool = True,
         capture_owner: bool = True,
         capture_tags: bool = True,
+        config: Optional[DatahubLineageConfig] = None,
     ) -> DataJob:
         """
 
@@ -215,6 +219,7 @@ class AirflowGenerator:
         :param set_dependencies: bool - whether to extract dependencies from airflow task
         :param capture_owner: bool - whether to extract owner from airflow task
         :param capture_tags: bool - whether to set tags automatically from airflow task
+        :param config: DatahubLineageConfig
         :return: DataJob - returns the generated DataJob object
         """
         dataflow_urn = DataFlowUrn.create_from_ids(
@@ -227,10 +232,7 @@ class AirflowGenerator:
 
         job_property_bag: Dict[str, str] = {}
 
-        allowed_task_keys = [
-            "_downstream_task_ids",
-            "_inlets",
-            "_outlets",
+        allowed_task_keys: List[Union[str, Tuple[str, ...]]] = [
             "_task_type",
             "_task_module",
             "depends_on_past",
@@ -243,19 +245,36 @@ class AirflowGenerator:
             "trigger_rule",
             "wait_for_downstream",
             # In Airflow 2.3, _downstream_task_ids was renamed to downstream_task_ids
-            "downstream_task_ids",
+            ("downstream_task_ids", "_downstream_task_ids"),
             # In Airflow 2.4, _inlets and _outlets were removed in favor of non-private versions.
-            "inlets",
-            "outlets",
+            ("inlets", "_inlets"),
+            ("outlets", "_outlets"),
         ]
 
         for key in allowed_task_keys:
-            if hasattr(task, key):
-                job_property_bag[key] = repr(getattr(task, key))
+            if isinstance(key, tuple):
+                out_key: str = key[0]
+                try_keys = key
+            else:
+                out_key = key
+                try_keys = (key,)
+
+            for k in try_keys:
+                if hasattr(task, k):
+                    v = getattr(task, k)
+                    if out_key == "downstream_task_ids":
+                        # Generate these in a consistent order.
+                        v = list(sorted(v))
+                    job_property_bag[out_key] = repr(v)
+                    break
 
         datajob.properties = job_property_bag
         base_url = conf.get("webserver", "base_url")
-        datajob.url = f"{base_url}/taskinstance/list/?flt1_dag_id_equals={datajob.flow_urn.get_flow_id()}&_flt_3_task_id={task.task_id}"
+
+        if config and config.datajob_url_link == DatajobUrl.GRID:
+            datajob.url = f"{base_url}/dags/{datajob.flow_urn.get_flow_id()}/grid?task_id={task.task_id}"
+        else:
+            datajob.url = f"{base_url}/taskinstance/list/?flt1_dag_id_equals={datajob.flow_urn.flow_id}&_flt_3_task_id={task.task_id}"
 
         if capture_owner and dag.owner:
             datajob.owners.add(dag.owner)
@@ -278,9 +297,12 @@ class AirflowGenerator:
         task: "Operator",
         dag: "DAG",
         data_job: Optional[DataJob] = None,
+        config: Optional[DatahubLineageConfig] = None,
     ) -> DataProcessInstance:
         if data_job is None:
-            data_job = AirflowGenerator.generate_datajob(cluster, task=task, dag=dag)
+            data_job = AirflowGenerator.generate_datajob(
+                cluster, task=task, dag=dag, config=config
+            )
         dpi = DataProcessInstance.from_datajob(
             datajob=data_job, id=task.task_id, clone_inlets=True, clone_outlets=True
         )
@@ -288,7 +310,7 @@ class AirflowGenerator:
 
     @staticmethod
     def run_dataflow(
-        emitter: Union["DatahubRestEmitter", "DatahubKafkaEmitter"],
+        emitter: Emitter,
         cluster: str,
         dag_run: "DagRun",
         start_timestamp_millis: Optional[int] = None,
@@ -340,7 +362,7 @@ class AirflowGenerator:
 
     @staticmethod
     def complete_dataflow(
-        emitter: Union["DatahubRestEmitter", "DatahubKafkaEmitter"],
+        emitter: Emitter,
         cluster: str,
         dag_run: "DagRun",
         end_timestamp_millis: Optional[int] = None,
@@ -348,7 +370,7 @@ class AirflowGenerator:
     ) -> None:
         """
 
-        :param emitter: DatahubRestEmitter - the datahub rest emitter to emit the generated mcps
+        :param emitter: Emitter - the datahub emitter to emit the generated mcps
         :param cluster: str - name of the cluster
         :param dag_run: DagRun
         :param end_timestamp_millis: Optional[int] - the completion time in milliseconds if not set the current time will be used.
@@ -386,7 +408,7 @@ class AirflowGenerator:
 
     @staticmethod
     def run_datajob(
-        emitter: Union["DatahubRestEmitter", "DatahubKafkaEmitter"],
+        emitter: Emitter,
         cluster: str,
         ti: "TaskInstance",
         dag: "DAG",
@@ -395,9 +417,12 @@ class AirflowGenerator:
         datajob: Optional[DataJob] = None,
         attempt: Optional[int] = None,
         emit_templates: bool = True,
+        config: Optional[DatahubLineageConfig] = None,
     ) -> DataProcessInstance:
         if datajob is None:
-            datajob = AirflowGenerator.generate_datajob(cluster, ti.task, dag)
+            datajob = AirflowGenerator.generate_datajob(
+                cluster, ti.task, dag, config=config
+            )
 
         assert dag_run.run_id
         dpi = DataProcessInstance.from_datajob(
@@ -413,17 +438,17 @@ class AirflowGenerator:
         job_property_bag["end_date"] = str(ti.end_date)
         job_property_bag["execution_date"] = str(ti.execution_date)
         job_property_bag["try_number"] = str(ti.try_number - 1)
-        job_property_bag["hostname"] = str(ti.hostname)
         job_property_bag["max_tries"] = str(ti.max_tries)
         # Not compatible with Airflow 1
         if hasattr(ti, "external_executor_id"):
             job_property_bag["external_executor_id"] = str(ti.external_executor_id)
-        job_property_bag["pid"] = str(ti.pid)
         job_property_bag["state"] = str(ti.state)
         job_property_bag["operator"] = str(ti.operator)
         job_property_bag["priority_weight"] = str(ti.priority_weight)
-        job_property_bag["unixname"] = str(ti.unixname)
         job_property_bag["log_url"] = ti.log_url
+        job_property_bag["orchestrator"] = "airflow"
+        job_property_bag["dag_id"] = str(dag.dag_id)
+        job_property_bag["task_id"] = str(ti.task_id)
         dpi.properties.update(job_property_bag)
         dpi.url = ti.log_url
 
@@ -442,8 +467,10 @@ class AirflowGenerator:
                 dpi.type = DataProcessTypeClass.BATCH_AD_HOC
 
         if start_timestamp_millis is None:
-            assert ti.start_date
-            start_timestamp_millis = int(ti.start_date.timestamp() * 1000)
+            if ti.start_date:
+                start_timestamp_millis = int(ti.start_date.timestamp() * 1000)
+            else:
+                start_timestamp_millis = int(datetime.now().timestamp() * 1000)
 
         if attempt is None:
             attempt = ti.try_number
@@ -458,7 +485,7 @@ class AirflowGenerator:
 
     @staticmethod
     def complete_datajob(
-        emitter: Union["DatahubRestEmitter", "DatahubKafkaEmitter"],
+        emitter: Emitter,
         cluster: str,
         ti: "TaskInstance",
         dag: "DAG",
@@ -466,10 +493,11 @@ class AirflowGenerator:
         end_timestamp_millis: Optional[int] = None,
         result: Optional[InstanceRunResult] = None,
         datajob: Optional[DataJob] = None,
+        config: Optional[DatahubLineageConfig] = None,
     ) -> DataProcessInstance:
         """
 
-        :param emitter: DatahubRestEmitter
+        :param emitter: Emitter - the datahub emitter to emit the generated mcps
         :param cluster: str
         :param ti: TaskInstance
         :param dag: DAG
@@ -477,14 +505,19 @@ class AirflowGenerator:
         :param end_timestamp_millis: Optional[int]
         :param result: Optional[str] One of the result from datahub.metadata.schema_class.RunResultTypeClass
         :param datajob: Optional[DataJob]
+        :param config: Optional[DatahubLineageConfig]
         :return: DataProcessInstance
         """
         if datajob is None:
-            datajob = AirflowGenerator.generate_datajob(cluster, ti.task, dag)
+            datajob = AirflowGenerator.generate_datajob(
+                cluster, ti.task, dag, config=config
+            )
 
         if end_timestamp_millis is None:
-            assert ti.end_date
-            end_timestamp_millis = int(ti.end_date.timestamp() * 1000)
+            if ti.end_date:
+                end_timestamp_millis = int(ti.end_date.timestamp() * 1000)
+            else:
+                end_timestamp_millis = int(datetime.now().timestamp() * 1000)
 
         if result is None:
             # We should use TaskInstanceState but it is not available in Airflow 1

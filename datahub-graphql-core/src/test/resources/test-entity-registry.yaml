@@ -181,6 +181,7 @@ entities:
     - assertionInfo
     - dataPlatformInstance
     - assertionRunEvent
+    - assertionActions
     - status
 - name: dataHubRetention
   category: internal
@@ -292,4 +293,24 @@ entities:
   aspects:
     - ownershipTypeInfo
     - status
+- name: businessAttribute
+  category: core
+  keyAspect: businessAttributeKey
+  aspects:
+    - businessAttributeInfo
+    - status
+    - ownership
+    - institutionalMemory
+- name: dataContract
+  category: core
+  keyAspect: dataContractKey
+  aspects:
+    - dataContractProperties
+    - dataContractStatus
+    - status
+- name: schemaField
+  category: core
+  keyAspect: schemaFieldKey
+  aspects:
+    - businessAttributes
 events:

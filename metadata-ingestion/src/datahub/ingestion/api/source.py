@@ -1,4 +1,5 @@
 import datetime
+import logging
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -29,7 +30,8 @@ from datahub.ingestion.api.common import PipelineContext, RecordEnvelope, WorkUn
 from datahub.ingestion.api.report import Report
 from datahub.ingestion.api.source_helpers import (
     auto_browse_path_v2,
-    auto_materialize_referenced_tags,
+    auto_lowercase_urns,
+    auto_materialize_referenced_tags_terms,
     auto_status_aspect,
     auto_workunit_reporter,
 )
@@ -37,6 +39,8 @@ from datahub.ingestion.api.workunit import MetadataWorkUnit
 from datahub.metadata.com.linkedin.pegasus2avro.mxe import MetadataChangeEvent
 from datahub.utilities.lossy_collections import LossyDict, LossyList
 from datahub.utilities.type_annotations import get_class_from_annotation
+
+logger = logging.getLogger(__name__)
 
 
 class SourceCapability(Enum):
@@ -53,6 +57,7 @@ class SourceCapability(Enum):
     TAGS = "Extract Tags"
     SCHEMA_METADATA = "Schema Metadata"
     CONTAINERS = "Asset Containers"
+    CLASSIFICATION = "Classification"
 
 
 @dataclass
@@ -97,10 +102,18 @@ class SourceReport(Report):
         warnings.append(reason)
         self.warnings[key] = warnings
 
+    def warning(self, key: str, reason: str) -> None:
+        self.report_warning(key, reason)
+        logger.warning(f"{key} => {reason}", stacklevel=2)
+
     def report_failure(self, key: str, reason: str) -> None:
         failures = self.failures.get(key, LossyList())
         failures.append(reason)
         self.failures[key] = failures
+
+    def failure(self, key: str, reason: str) -> None:
+        self.report_failure(key, reason)
+        logger.error(f"{key} => {reason}", stacklevel=2)
 
     def __post_init__(self) -> None:
         self.start_time = datetime.datetime.now()
@@ -192,9 +205,33 @@ class Source(Closeable, metaclass=ABCMeta):
                 self.ctx.pipeline_config.flags.generate_browse_path_v2_dry_run
             )
 
+        auto_lowercase_dataset_urns: Optional[MetadataWorkUnitProcessor] = None
+        if (
+            self.ctx.pipeline_config
+            and self.ctx.pipeline_config.source
+            and self.ctx.pipeline_config.source.config
+            and (
+                (
+                    hasattr(
+                        self.ctx.pipeline_config.source.config,
+                        "convert_urns_to_lowercase",
+                    )
+                    and self.ctx.pipeline_config.source.config.convert_urns_to_lowercase
+                )
+                or (
+                    hasattr(self.ctx.pipeline_config.source.config, "get")
+                    and self.ctx.pipeline_config.source.config.get(
+                        "convert_urns_to_lowercase"
+                    )
+                )
+            )
+        ):
+            auto_lowercase_dataset_urns = auto_lowercase_urns
+
         return [
+            auto_lowercase_dataset_urns,
             auto_status_aspect,
-            auto_materialize_referenced_tags,
+            auto_materialize_referenced_tags_terms,
             browse_path_processor,
             partial(auto_workunit_reporter, self.get_report()),
         ]
@@ -240,7 +277,12 @@ class Source(Closeable, metaclass=ABCMeta):
 
     def _get_browse_path_processor(self, dry_run: bool) -> MetadataWorkUnitProcessor:
         config = self.get_config()
-        platform = getattr(self, "platform", None) or getattr(config, "platform", None)
+
+        platform = (
+            getattr(config, "platform_name", None)
+            or getattr(self, "platform", None)
+            or getattr(config, "platform", None)
+        )
         env = getattr(config, "env", None)
         browse_path_drop_dirs = [
             platform,
@@ -253,13 +295,14 @@ class Source(Closeable, metaclass=ABCMeta):
         if isinstance(config, PlatformInstanceConfigMixin) and config.platform_instance:
             platform_instance = config.platform_instance
 
-        return partial(
+        browse_path_processor = partial(
             auto_browse_path_v2,
             platform=platform,
             platform_instance=platform_instance,
             drop_dirs=[s for s in browse_path_drop_dirs if s is not None],
             dry_run=dry_run,
         )
+        return lambda stream: browse_path_processor(stream)
 
 
 class TestableSource(Source):
